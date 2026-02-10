@@ -10,6 +10,11 @@ This is a Vaadin application built with:
 - Spring Data JPA with H2 database
 - Maven build system
 
+## Important instructions
+
+In Plan mode, always use the Vaadin MCP server to check for current APIs,
+best-practices and guides!
+
 ## Development Commands
 
 ### Running the Application

@@ -25,12 +25,11 @@ public final class MainLayout extends AppLayout {
     }
 
     private Component createHeader() {
-        // TODO Replace with real application logo and name
-        var appLogo = VaadinIcon.CUBES.create();
+        var appLogo = VaadinIcon.CALENDAR.create();
         appLogo.setSize("48px");
-        appLogo.setColor("green");
+        appLogo.setColor("var(--lumo-primary-color)");
 
-        var appName = new Span("My Application");
+        var appName = new Span("CalView");
         appName.getStyle().setFontWeight(Style.FontWeight.BOLD);
 
         var header = new VerticalLayout(appLogo, appName);
