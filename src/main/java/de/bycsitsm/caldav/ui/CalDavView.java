@@ -242,11 +242,17 @@ class CalDavView extends VerticalLayout {
         var label = switch (event.status().toUpperCase()) {
             case "PRIVATE" -> "Private";
             case "CONFIDENTIAL" -> "Confidential";
+            case "BUSY" -> "Busy";
+            case "BUSY-TENTATIVE" -> "Tentative";
+            case "BUSY-UNAVAILABLE" -> "Unavailable";
             default -> "Public";
         };
         var variant = switch (event.status().toUpperCase()) {
             case "PRIVATE" -> "contrast";
             case "CONFIDENTIAL" -> "warning";
+            case "BUSY" -> "contrast";
+            case "BUSY-TENTATIVE" -> "warning";
+            case "BUSY-UNAVAILABLE" -> "error";
             default -> "success";
         };
         var badge = new Span(label);

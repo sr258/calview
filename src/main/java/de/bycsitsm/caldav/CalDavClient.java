@@ -215,11 +215,17 @@ class CalDavClient {
                     }
                 } catch (CalDavException e) {
                     if (e.getMessage() != null && e.getMessage().contains("Access denied")) {
-                        // Principal exists but calendars are not shared with us
-                        log.debug("No access to principal {}: {}", principal.displayName(), e.getMessage());
+                        // Principal exists but calendars are not shared with us.
+                        // Use the default calendar collection path (principal href + "calendar/")
+                        // because free-busy-query must target a calendar resource, not the principal.
+                        var calendarHref = principal.href().endsWith("/")
+                                ? principal.href() + "calendar/"
+                                : principal.href() + "/calendar/";
+                        log.debug("No access to principal {}, using calendar href: {}",
+                                principal.displayName(), calendarHref);
                         allCalendars.add(new CalDavCalendar(
                                 principal.displayName(),
-                                principal.href(),
+                                calendarHref,
                                 null,
                                 null,
                                 null,
@@ -271,12 +277,19 @@ class CalDavClient {
             var startStr = weekStart.format(ICAL_DATE_FORMATTER) + "T000000Z";
             var endStr = weekEnd.format(ICAL_DATE_FORMATTER) + "T000000Z";
 
-            var reportXml = CALENDAR_QUERY_XML_TEMPLATE
-                    .replace("{{START}}", startStr)
-                    .replace("{{END}}", endStr);
-
-            var responseBody = sendCalendarReport(normalizedUrl, username, password, reportXml);
-            return parseCalendarQueryResponse(responseBody, accessible);
+            if (accessible) {
+                var reportXml = CALENDAR_QUERY_XML_TEMPLATE
+                        .replace("{{START}}", startStr)
+                        .replace("{{END}}", endStr);
+                var responseBody = sendCalendarReport(normalizedUrl, username, password, reportXml);
+                return parseCalendarQueryResponse(responseBody, true);
+            } else {
+                var reportXml = FREE_BUSY_QUERY_XML_TEMPLATE
+                        .replace("{{START}}", startStr)
+                        .replace("{{END}}", endStr);
+                var responseBody = sendFreeBusyReport(normalizedUrl, username, password, reportXml);
+                return parseFreeBusyResponse(responseBody);
+            }
         } catch (CalDavException e) {
             throw e;
         } catch (Exception e) {
@@ -307,6 +320,19 @@ class CalDavClient {
                 </c:comp-filter>
               </c:filter>
             </c:calendar-query>
+            """;
+
+    /**
+     * XML template for a REPORT free-busy-query (RFC 4791 section 7.10).
+     * Used when the user only has {@code CALDAV:read-free-busy} privilege
+     * (but not {@code DAV:read}) on a calendar. Returns VFREEBUSY data
+     * with busy periods instead of full event details.
+     */
+    private static final String FREE_BUSY_QUERY_XML_TEMPLATE = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <c:free-busy-query xmlns:c="urn:ietf:params:xml:ns:caldav">
+              <c:time-range start="{{START}}" end="{{END}}"/>
+            </c:free-busy-query>
             """;
 
     private String sendCalendarReport(String normalizedUrl, String username, String password, String reportXml)
@@ -340,6 +366,51 @@ class CalDavClient {
             case 207 -> response.body();
             case 401 -> throw new CalDavException("Authentication failed. Please check your username and password.");
             case 403 -> throw new CalDavException("Access denied. You don't have permission to access this calendar.");
+            case 404 -> throw new CalDavException("Calendar not found at this URL.");
+            default -> throw new CalDavException("Server returned unexpected status " + response.statusCode() + ".");
+        };
+    }
+
+    /**
+     * Sends a REPORT request with a {@code free-busy-query} body.
+     * <p>
+     * Unlike {@code calendar-query}, the response is a direct {@code 200 OK}
+     * with a {@code text/calendar} body containing a VCALENDAR with a
+     * VFREEBUSY component — NOT a 207 multistatus XML response.
+     */
+    private String sendFreeBusyReport(String normalizedUrl, String username, String password, String reportXml)
+            throws IOException, InterruptedException {
+        var credentials = Base64.getEncoder().encodeToString(
+                (username + ":" + password).getBytes(StandardCharsets.UTF_8));
+
+        var clientBuilder = HttpClient.newBuilder()
+                .connectTimeout(CONNECT_TIMEOUT)
+                .followRedirects(HttpClient.Redirect.NORMAL);
+
+        if (trustAllCertificates) {
+            clientBuilder.sslContext(createTrustAllSslContext());
+        }
+
+        var httpClient = clientBuilder.build();
+
+        var request = HttpRequest.newBuilder()
+                .uri(URI.create(normalizedUrl))
+                .method("REPORT", HttpRequest.BodyPublishers.ofString(reportXml))
+                .header("Content-Type", "application/xml; charset=utf-8")
+                .header("Depth", "1")
+                .header("Authorization", "Basic " + credentials)
+                .timeout(REQUEST_TIMEOUT)
+                .build();
+
+        log.debug("Sending REPORT free-busy-query to {}", normalizedUrl);
+        var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+        log.debug("Free-busy-query response status: {}, body length: {}", response.statusCode(), response.body().length());
+        log.trace("Free-busy-query response body:\n{}", response.body());
+
+        return switch (response.statusCode()) {
+            case 200 -> response.body();
+            case 401 -> throw new CalDavException("Authentication failed. Please check your username and password.");
+            case 403 -> throw new CalDavException("Access denied. You don't have permission to view free/busy data for this calendar.");
             case 404 -> throw new CalDavException("Calendar not found at this URL.");
             default -> throw new CalDavException("Server returned unexpected status " + response.statusCode() + ".");
         };
@@ -385,6 +456,7 @@ class CalDavClient {
     private static final Pattern DTSTART_PATTERN = Pattern.compile("(?m)^DTSTART[;:](.*)$");
     private static final Pattern DTEND_PATTERN = Pattern.compile("(?m)^DTEND[;:](.*)$");
     private static final Pattern CLASS_PATTERN = Pattern.compile("(?m)^CLASS[;:](.*)$");
+    private static final Pattern FREEBUSY_PATTERN = Pattern.compile("(?m)^FREEBUSY[;:](.*)$");
 
     /**
      * Parses raw iCalendar text data into {@link CalDavEvent} records.
@@ -454,6 +526,127 @@ class CalDavClient {
             return value.strip();
         }
         return null;
+    }
+
+    /**
+     * Parses a free-busy-query REPORT response (raw iCalendar text with
+     * VFREEBUSY component) into a list of {@link CalDavEvent} records.
+     * <p>
+     * The response body contains a VCALENDAR with a VFREEBUSY component.
+     * FREEBUSY lines have the format:
+     * <pre>
+     * FREEBUSY;FBTYPE=BUSY:20250210T140000Z/20250210T150000Z
+     * FREEBUSY:20250210T140000Z/20250210T150000Z,20250211T090000Z/20250211T100000Z
+     * FREEBUSY;FBTYPE=BUSY-TENTATIVE:20250212T080000Z/PT1H
+     * </pre>
+     * Each period is {@code start/end} or {@code start/duration}. Multiple
+     * periods can be comma-separated on a single line.
+     *
+     * @param icalBody the raw iCalendar response body
+     * @return a list of events representing busy periods, all with {@code accessible=false}
+     */
+    List<CalDavEvent> parseFreeBusyResponse(String icalBody) {
+        var events = new ArrayList<CalDavEvent>();
+
+        // Unfold lines
+        var unfolded = icalBody.replaceAll("\\r?\\n[ \\t]", "");
+
+        // Find the VFREEBUSY block
+        var fbStart = unfolded.indexOf("BEGIN:VFREEBUSY");
+        var fbEnd = unfolded.indexOf("END:VFREEBUSY");
+        if (fbStart == -1 || fbEnd == -1) {
+            log.debug("No VFREEBUSY block found in free-busy response");
+            return events;
+        }
+
+        var fbBlock = unfolded.substring(fbStart, fbEnd);
+
+        // Find all FREEBUSY lines
+        var matcher = FREEBUSY_PATTERN.matcher(fbBlock);
+        while (matcher.find()) {
+            var rawValue = matcher.group(1).strip();
+
+            // Extract FBTYPE from parameters if present
+            var fbType = "BUSY"; // default per RFC 4791
+            var periodsStr = rawValue;
+
+            // The regex captures everything after "FREEBUSY;" or "FREEBUSY:"
+            // If the raw match group contains parameters (e.g. "FBTYPE=BUSY:periods"),
+            // we need to split on the last colon that separates params from value.
+            // But extractICalProperty already handles this for single-value properties.
+            // For FREEBUSY, the full line looks like:
+            //   FREEBUSY;FBTYPE=BUSY:20250210T140000Z/20250210T150000Z
+            // After the pattern match, group(1) is "FBTYPE=BUSY:20250210T140000Z/20250210T150000Z"
+            // or just "20250210T140000Z/20250210T150000Z" if no params.
+            var colonIdx = rawValue.indexOf(':');
+            if (colonIdx >= 0 && rawValue.contains("=")) {
+                // Has parameters before the colon
+                var params = rawValue.substring(0, colonIdx);
+                periodsStr = rawValue.substring(colonIdx + 1).strip();
+
+                // Extract FBTYPE
+                var fbTypeMatch = Pattern.compile("FBTYPE=([A-Z-]+)").matcher(params);
+                if (fbTypeMatch.find()) {
+                    fbType = fbTypeMatch.group(1);
+                }
+            }
+
+            // Parse comma-separated periods
+            var periods = periodsStr.split(",");
+            for (var period : periods) {
+                var trimmed = period.strip();
+                if (trimmed.isEmpty()) {
+                    continue;
+                }
+
+                var slashIdx = trimmed.indexOf('/');
+                if (slashIdx == -1) {
+                    log.warn("Invalid FREEBUSY period (no slash): {}", trimmed);
+                    continue;
+                }
+
+                var startStr = trimmed.substring(0, slashIdx);
+                var endOrDuration = trimmed.substring(slashIdx + 1);
+
+                var date = parseICalDate(startStr);
+                var startTime = parseICalTime(startStr);
+
+                if (date == null) {
+                    log.warn("Could not parse date from FREEBUSY period: {}", startStr);
+                    continue;
+                }
+
+                LocalTime endTime;
+                if (endOrDuration.startsWith("P")) {
+                    // ISO 8601 duration like PT1H, PT30M, PT1H30M
+                    endTime = parseDurationEndTime(startTime, endOrDuration);
+                } else {
+                    endTime = parseICalTime(endOrDuration);
+                }
+
+                events.add(new CalDavEvent(null, date, startTime, endTime, fbType, false));
+            }
+        }
+
+        return events;
+    }
+
+    /**
+     * Calculates the end time by adding an ISO 8601 duration to a start time.
+     * Supports simple durations like {@code PT1H}, {@code PT30M}, {@code PT1H30M}.
+     * Returns {@code null} if the start time is null or the duration cannot be parsed.
+     */
+    private @Nullable LocalTime parseDurationEndTime(@Nullable LocalTime startTime, String duration) {
+        if (startTime == null) {
+            return null;
+        }
+        try {
+            var javaDuration = Duration.parse(duration);
+            return startTime.plus(javaDuration);
+        } catch (DateTimeParseException e) {
+            log.warn("Failed to parse FREEBUSY duration: {}", duration);
+            return null;
+        }
     }
 
     /**
