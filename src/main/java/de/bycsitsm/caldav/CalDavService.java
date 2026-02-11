@@ -43,6 +43,34 @@ public class CalDavService {
     }
 
     /**
+     * Searches for users (principals) on the CalDAV server whose display name
+     * matches the given search term. The search is performed server-side using
+     * the {@code principal-property-search} REPORT method.
+     * <p>
+     * This is preferred over {@link #discoverUsers} when the server limits
+     * the number of results (e.g. DAViCal limits REPORT responses to 100 entries).
+     *
+     * @param url        the CalDAV URL to connect to (typically the server root)
+     * @param username   the username for authentication
+     * @param password   the password for authentication
+     * @param searchTerm the search term to match against display names (minimum 1 character)
+     * @return a list of matching users
+     * @throws CalDavException if validation fails or the search cannot be performed
+     */
+    public List<CalDavUser> searchUsers(String url, String username, String password, String searchTerm) {
+        validateInputs(url, username, password);
+        if (searchTerm == null || searchTerm.isBlank()) {
+            throw new CalDavException("Search term must not be empty.");
+        }
+
+        log.info("Searching users at {} with term '{}' for user {}", url, searchTerm, username);
+        var users = calDavClient.searchUsers(url, username, password, searchTerm);
+        log.info("Found {} user(s) matching '{}' at {}", users.size(), searchTerm, url);
+
+        return users;
+    }
+
+    /**
      * Fetches events for the current week from a specific user's default calendar.
      * <p>
      * Uses a smart fallback strategy: first attempts a {@code calendar-query}

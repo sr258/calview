@@ -136,6 +136,30 @@ class CalDavClientTest {
     }
 
     @Test
+    void building_principal_search_xml_includes_search_term() {
+        var xml = client.buildPrincipalSearchXml("Müller");
+
+        assertThat(xml).contains("<d:match>Müller</d:match>");
+        assertThat(xml).contains("<d:principal-property-search");
+        assertThat(xml).contains("<d:displayname/>");
+    }
+
+    @Test
+    void building_principal_search_xml_escapes_xml_special_characters() {
+        var xml = client.buildPrincipalSearchXml("O'Brien & <Co>");
+
+        assertThat(xml).contains("<d:match>O&apos;Brien &amp; &lt;Co&gt;</d:match>");
+        assertThat(xml).doesNotContain("O'Brien & <Co>");
+    }
+
+    @Test
+    void building_principal_search_xml_handles_empty_search_term() {
+        var xml = client.buildPrincipalSearchXml("");
+
+        assertThat(xml).contains("<d:match></d:match>");
+    }
+
+    @Test
     void parsing_freebusy_response_extracts_busy_periods() {
         var ical = """
                 BEGIN:VCALENDAR

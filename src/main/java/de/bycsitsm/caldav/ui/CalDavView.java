@@ -2,32 +2,38 @@ package de.bycsitsm.caldav.ui;
 
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
-import com.vaadin.flow.component.dialog.Dialog;
-import com.vaadin.flow.component.grid.Grid;
-import com.vaadin.flow.component.grid.GridVariant;
+import com.vaadin.flow.component.combobox.ComboBox;
+import com.vaadin.flow.component.html.H3;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.icon.Icon;
+import com.vaadin.flow.component.icon.VaadinIcon;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.NotificationVariant;
+import com.vaadin.flow.component.orderedlayout.FlexComponent;
+import com.vaadin.flow.component.orderedlayout.HorizontalLayout;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
 import com.vaadin.flow.component.textfield.PasswordField;
 import com.vaadin.flow.component.textfield.TextField;
 import com.vaadin.flow.router.Menu;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
+import com.vaadin.flow.theme.lumo.LumoUtility;
 import de.bycsitsm.base.ui.ViewToolbar;
-import de.bycsitsm.caldav.CalDavEvent;
 import de.bycsitsm.caldav.CalDavException;
 import de.bycsitsm.caldav.CalDavService;
 import de.bycsitsm.caldav.CalDavUser;
 
-import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Stream;
 
 @Route("")
-@PageTitle("CalDAV Users")
-@Menu(order = 0, icon = "vaadin:calendar", title = "Users")
+@PageTitle("Appointment Planner")
+@Menu(order = 0, icon = "vaadin:calendar", title = "Planner")
 class CalDavView extends VerticalLayout {
+
+    private static final int MIN_SEARCH_LENGTH = 2;
 
     private final CalDavService calDavService;
 
@@ -35,7 +41,15 @@ class CalDavView extends VerticalLayout {
     private final TextField usernameField;
     private final PasswordField passwordField;
     private final Button connectButton;
-    private final Grid<CalDavUser> userGrid;
+    private final ComboBox<CalDavUser> userSearchBox;
+    private final VerticalLayout selectedUsersLayout;
+    private final Span selectedCountLabel;
+
+    /** Tracks whether the user has successfully connected to the server. */
+    private boolean connected;
+
+    /** Maintains the set of selected users in insertion order. */
+    private final Set<CalDavUser> selectedUsers = new LinkedHashSet<>();
 
     CalDavView(CalDavService calDavService) {
         this.calDavService = calDavService;
@@ -59,162 +73,163 @@ class CalDavView extends VerticalLayout {
         connectButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
 
         // Toolbar
-        var toolbar = new ViewToolbar("Users",
+        var toolbar = new ViewToolbar("Planner",
                 ViewToolbar.group(urlField, usernameField, passwordField, connectButton));
         add(toolbar);
 
-        // User grid
-        userGrid = createUserGrid();
-        add(userGrid);
+        // Main content area
+        var content = new VerticalLayout();
+        content.setPadding(true);
+        content.setSpacing(true);
+        content.setSizeFull();
 
-        // Click handler to show weekly appointments
-        userGrid.addItemClickListener(event -> showWeekEvents(event.getItem()));
+        // User search ComboBox
+        userSearchBox = createUserSearchBox();
+        content.add(userSearchBox);
+
+        // Selected users section
+        var selectedHeader = new HorizontalLayout();
+        selectedHeader.setDefaultVerticalComponentAlignment(FlexComponent.Alignment.BASELINE);
+        selectedHeader.setSpacing(true);
+
+        var selectedTitle = new H3("Selected Users");
+        selectedTitle.addClassNames(LumoUtility.Margin.Top.MEDIUM, LumoUtility.Margin.Bottom.NONE);
+
+        selectedCountLabel = new Span("(0)");
+        selectedCountLabel.addClassNames(LumoUtility.TextColor.SECONDARY, LumoUtility.FontSize.SMALL);
+
+        selectedHeader.add(selectedTitle, selectedCountLabel);
+        content.add(selectedHeader);
+
+        selectedUsersLayout = new VerticalLayout();
+        selectedUsersLayout.setPadding(false);
+        selectedUsersLayout.setSpacing(false);
+        selectedUsersLayout.setWidthFull();
+        content.add(selectedUsersLayout);
+
+        add(content);
+
+        updateSelectedUsersDisplay();
     }
 
-    private Grid<CalDavUser> createUserGrid() {
-        var grid = new Grid<CalDavUser>();
-        grid.addThemeVariants(GridVariant.LUMO_ROW_STRIPES);
-        grid.setSizeFull();
+    private ComboBox<CalDavUser> createUserSearchBox() {
+        var comboBox = new ComboBox<CalDavUser>("Search Users");
+        comboBox.setPlaceholder("Type at least " + MIN_SEARCH_LENGTH + " characters to search...");
+        comboBox.setWidthFull();
+        comboBox.setClearButtonVisible(true);
+        comboBox.setEnabled(false);
+        comboBox.setPrefixComponent(VaadinIcon.SEARCH.create());
+        comboBox.setItemLabelGenerator(CalDavUser::displayName);
+        comboBox.getStyle().set("--vaadin-combo-box-overlay-width", "400px");
 
-        grid.addColumn(CalDavUser::displayName)
-                .setHeader("Name")
-                .setAutoWidth(true)
-                .setFlexGrow(1);
+        // Fetch callback: queries the CalDAV server for matching users.
+        // The query contract requires calling getOffset()/getLimit() even though
+        // the CalDAV server returns all results at once (up to its own limit of 100).
+        comboBox.setItems(query -> {
+            var filter = query.getFilter().orElse("");
+            var offset = query.getOffset();
+            var limit = query.getLimit();
+            if (filter.length() < MIN_SEARCH_LENGTH) {
+                return Stream.empty();
+            }
+            return searchUsersOnServer(filter).stream()
+                    .skip(offset)
+                    .limit(limit);
+        });
 
-        grid.addColumn(CalDavUser::href)
-                .setHeader("Path")
-                .setAutoWidth(true)
-                .setFlexGrow(1);
+        // When a user is selected from the dropdown, add them to the list
+        comboBox.addValueChangeListener(event -> {
+            var user = event.getValue();
+            if (user != null) {
+                addSelectedUser(user);
+                // Clear the ComboBox after selection so the user can search again
+                comboBox.clear();
+            }
+        });
 
-        return grid;
+        return comboBox;
     }
 
-    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("EEE, MMM d");
-    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
-
-    private void showWeekEvents(CalDavUser user) {
+    private List<CalDavUser> searchUsersOnServer(String searchTerm) {
         var url = urlField.getValue();
         var username = usernameField.getValue();
         var password = passwordField.getValue();
 
-        if (url.isBlank() || username.isBlank() || password.isBlank()) {
-            return;
+        if (!connected || url.isBlank() || username.isBlank() || password.isBlank()) {
+            return List.of();
         }
 
         try {
-            var events = calDavService.fetchWeekEvents(url, user.href(), username, password);
-
-            var dialog = new Dialog();
-            dialog.setHeaderTitle("This Week \u2014 " + user.displayName());
-            dialog.setWidth("700px");
-            dialog.setMaxHeight("80vh");
-            dialog.setDraggable(true);
-            dialog.setResizable(true);
-
-            // Close button in header
-            var closeButton = new Button(new Icon("lumo", "cross"), e -> dialog.close());
-            closeButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
-            dialog.getHeader().add(closeButton);
-
-            if (events.isEmpty()) {
-                var emptyMessage = new Span("No appointments this week.");
-                emptyMessage.getStyle()
-                        .set("color", "var(--lumo-secondary-text-color)")
-                        .set("padding", "var(--lumo-space-m)");
-                dialog.add(emptyMessage);
-            } else {
-                var eventGrid = createEventGrid(events);
-                eventGrid.setItems(events);
-                dialog.add(eventGrid);
-            }
-
-            // Footer with event count
-            var countLabel = new Span(events.size() + " appointment(s)");
-            countLabel.getStyle().set("color", "var(--lumo-secondary-text-color)");
-            dialog.getFooter().add(countLabel);
-
-            dialog.open();
+            var results = calDavService.searchUsers(url, username, password, searchTerm);
+            // Filter out already-selected users from search results
+            return results.stream()
+                    .filter(user -> !selectedUsers.contains(user))
+                    .toList();
         } catch (CalDavException e) {
-            Notification.show("Could not load appointments: " + e.getMessage(), 5000,
-                            Notification.Position.BOTTOM_CENTER)
-                    .addThemeVariants(NotificationVariant.LUMO_ERROR);
+            // Log but don't show error notification for every keystroke search failure
+            return List.of();
         }
     }
 
-    private Grid<CalDavEvent> createEventGrid(List<CalDavEvent> events) {
-        var grid = new Grid<CalDavEvent>();
-        grid.addThemeVariants(GridVariant.LUMO_ROW_STRIPES, GridVariant.LUMO_COMPACT);
-        grid.setAllRowsVisible(true);
-
-        grid.addColumn(event -> event.date().format(DATE_FORMATTER))
-                .setHeader("Date")
-                .setAutoWidth(true)
-                .setFlexGrow(0);
-
-        grid.addColumn(event -> formatTimeRange(event))
-                .setHeader("Time")
-                .setAutoWidth(true)
-                .setFlexGrow(0);
-
-        // Determine if any events have accessible details (calendar-query succeeded)
-        var hasAccessibleEvents = events.stream().anyMatch(CalDavEvent::accessible);
-
-        if (hasAccessibleEvents) {
-            grid.addColumn(event -> event.summary() != null ? event.summary() : "(No title)")
-                    .setHeader("Name")
-                    .setAutoWidth(true)
-                    .setFlexGrow(2);
-        } else {
-            grid.addComponentColumn(event -> {
-                        var span = new Span("(Restricted)");
-                        span.getStyle().set("color", "var(--lumo-secondary-text-color)")
-                                .set("font-style", "italic");
-                        return span;
-                    })
-                    .setHeader("Name")
-                    .setAutoWidth(true)
-                    .setFlexGrow(2);
+    private void addSelectedUser(CalDavUser user) {
+        if (selectedUsers.add(user)) {
+            updateSelectedUsersDisplay();
         }
-
-        grid.addComponentColumn(this::createStatusBadge)
-                .setHeader("Status")
-                .setAutoWidth(true)
-                .setFlexGrow(0);
-
-        return grid;
     }
 
-    private String formatTimeRange(CalDavEvent event) {
-        if (event.startTime() == null) {
-            return "All day";
+    private void removeSelectedUser(CalDavUser user) {
+        if (selectedUsers.remove(user)) {
+            updateSelectedUsersDisplay();
         }
-        var start = event.startTime().format(TIME_FORMATTER);
-        if (event.endTime() != null) {
-            return start + " \u2013 " + event.endTime().format(TIME_FORMATTER);
-        }
-        return start;
     }
 
-    private Span createStatusBadge(CalDavEvent event) {
-        var label = switch (event.status().toUpperCase()) {
-            case "PRIVATE" -> "Private";
-            case "CONFIDENTIAL" -> "Confidential";
-            case "BUSY" -> "Busy";
-            case "BUSY-TENTATIVE" -> "Tentative";
-            case "BUSY-UNAVAILABLE" -> "Unavailable";
-            default -> "Public";
-        };
-        var variant = switch (event.status().toUpperCase()) {
-            case "PRIVATE" -> "contrast";
-            case "CONFIDENTIAL" -> "warning";
-            case "BUSY" -> "contrast";
-            case "BUSY-TENTATIVE" -> "warning";
-            case "BUSY-UNAVAILABLE" -> "error";
-            default -> "success";
-        };
-        var badge = new Span(label);
-        badge.getElement().getThemeList().add("badge " + variant + " small");
-        return badge;
+    private void updateSelectedUsersDisplay() {
+        selectedUsersLayout.removeAll();
+        selectedCountLabel.setText("(" + selectedUsers.size() + ")");
+
+        if (selectedUsers.isEmpty()) {
+            var emptyMessage = new Span("No users selected. Use the search box above to find and add users.");
+            emptyMessage.addClassNames(LumoUtility.TextColor.SECONDARY, LumoUtility.Padding.MEDIUM);
+            selectedUsersLayout.add(emptyMessage);
+            return;
+        }
+
+        for (var user : selectedUsers) {
+            selectedUsersLayout.add(createSelectedUserRow(user));
+        }
+    }
+
+    private HorizontalLayout createSelectedUserRow(CalDavUser user) {
+        var row = new HorizontalLayout();
+        row.setWidthFull();
+        row.setDefaultVerticalComponentAlignment(FlexComponent.Alignment.CENTER);
+        row.addClassNames(LumoUtility.Padding.Horizontal.MEDIUM,
+                LumoUtility.Padding.Vertical.SMALL);
+        row.getStyle().set("border-bottom", "1px solid var(--lumo-contrast-10pct)");
+
+        var userIcon = VaadinIcon.USER.create();
+        userIcon.addClassNames(LumoUtility.TextColor.SECONDARY);
+        userIcon.setSize("var(--lumo-icon-size-s)");
+
+        var nameLabel = new Span(user.displayName());
+        nameLabel.addClassNames(LumoUtility.FontWeight.MEDIUM);
+
+        var pathLabel = new Span(user.href());
+        pathLabel.addClassNames(LumoUtility.TextColor.SECONDARY, LumoUtility.FontSize.SMALL);
+
+        var nameAndPath = new VerticalLayout(nameLabel, pathLabel);
+        nameAndPath.setPadding(false);
+        nameAndPath.setSpacing(false);
+
+        var removeButton = new Button(new Icon("lumo", "cross"), event -> removeSelectedUser(user));
+        removeButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY, ButtonVariant.LUMO_SMALL,
+                ButtonVariant.LUMO_ERROR);
+        removeButton.setTooltipText("Remove " + user.displayName());
+
+        row.add(userIcon, nameAndPath, removeButton);
+        row.setFlexGrow(1, nameAndPath);
+
+        return row;
     }
 
     private void connect() {
@@ -232,19 +247,17 @@ class CalDavView extends VerticalLayout {
         connectButton.setText("Connecting...");
 
         try {
-            var users = calDavService.discoverUsers(url, username, password);
-            userGrid.setItems(users);
+            // Verify the connection by performing a minimal search
+            calDavService.searchUsers(url, username, password, "a");
+            connected = true;
+            userSearchBox.setEnabled(true);
 
-            if (users.isEmpty()) {
-                Notification.show("Connected successfully, but no users were found.", 5000,
-                        Notification.Position.BOTTOM_CENTER);
-            } else {
-                Notification.show("Found " + users.size() + " user(s).", 3000,
-                                Notification.Position.BOTTOM_CENTER)
-                        .addThemeVariants(NotificationVariant.LUMO_SUCCESS);
-            }
+            Notification.show("Connected successfully. You can now search for users.", 3000,
+                            Notification.Position.BOTTOM_CENTER)
+                    .addThemeVariants(NotificationVariant.LUMO_SUCCESS);
         } catch (CalDavException e) {
-            userGrid.setItems(List.of());
+            connected = false;
+            userSearchBox.setEnabled(false);
             Notification.show(e.getMessage(), 5000, Notification.Position.BOTTOM_CENTER)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
         } finally {

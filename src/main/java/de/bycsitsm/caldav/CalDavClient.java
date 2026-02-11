@@ -89,6 +89,28 @@ class CalDavClient {
             """;
 
     /**
+     * XML template for a REPORT request that searches principals by display name.
+     * The placeholder {@code {{SEARCH_TERM}}} is replaced with the XML-escaped
+     * search term. DAViCal performs a case-insensitive substring match on the
+     * display name.
+     */
+    private static final String PRINCIPAL_SEARCH_BY_NAME_XML_TEMPLATE = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <d:principal-property-search xmlns:d="DAV:" test="anyof">
+              <d:property-search>
+                <d:prop>
+                  <d:displayname/>
+                </d:prop>
+                <d:match>{{SEARCH_TERM}}</d:match>
+              </d:property-search>
+              <d:prop>
+                <d:displayname/>
+                <d:resourcetype/>
+              </d:prop>
+            </d:principal-property-search>
+            """;
+
+    /**
      * Discovers all users (principals) on the CalDAV server using the
      * {@code principal-property-search} REPORT method.
      *
@@ -113,6 +135,65 @@ class CalDavClient {
         } catch (Exception e) {
             throw new CalDavException("Failed to discover users: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Searches for users (principals) on the CalDAV server whose display name
+     * matches the given search term. Uses the {@code principal-property-search}
+     * REPORT method with the search term in the {@code <match>} element.
+     * <p>
+     * DAViCal performs a case-insensitive substring match on the display name
+     * and limits results to 100 entries per REPORT response.
+     *
+     * @param url        the CalDAV URL (typically the server root)
+     * @param username   the username for authentication
+     * @param password   the password for authentication
+     * @param searchTerm the search term to match against display names
+     * @return a list of matching users
+     * @throws CalDavException if the request fails or the response cannot be parsed
+     */
+    List<CalDavUser> searchUsers(String url, String username, String password, String searchTerm) {
+        try {
+            var normalizedUrl = normalizeUrl(url);
+            var searchXml = buildPrincipalSearchXml(searchTerm);
+            var responseBody = sendReport(normalizedUrl, username, password, searchXml);
+            var principals = parsePrincipalSearchResponse(responseBody);
+
+            var users = new ArrayList<CalDavUser>();
+            for (var principal : principals) {
+                users.add(new CalDavUser(principal.displayName(), principal.href()));
+            }
+            return users;
+        } catch (CalDavException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new CalDavException("Failed to search users: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Builds the XML body for a principal-property-search REPORT with the given
+     * search term. The search term is XML-escaped to prevent injection.
+     *
+     * @param searchTerm the search term to place in the {@code <match>} element
+     * @return the complete XML request body
+     */
+    String buildPrincipalSearchXml(String searchTerm) {
+        return PRINCIPAL_SEARCH_BY_NAME_XML_TEMPLATE
+                .replace("{{SEARCH_TERM}}", escapeXml(searchTerm));
+    }
+
+    /**
+     * Escapes XML special characters in a string to prevent injection
+     * when embedding user input in XML request bodies.
+     */
+    private static String escapeXml(String input) {
+        return input
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&apos;");
     }
 
     /**
@@ -581,7 +662,7 @@ class CalDavClient {
      */
     List<Principal> discoverPrincipals(String normalizedUrl, String username, String password) {
         try {
-            var responseBody = sendReport(normalizedUrl, username, password);
+            var responseBody = sendReport(normalizedUrl, username, password, PRINCIPAL_SEARCH_XML);
             return parsePrincipalSearchResponse(responseBody);
         } catch (CalDavException e) {
             throw e;
@@ -651,7 +732,7 @@ class CalDavClient {
         return false;
     }
 
-    private String sendReport(String normalizedUrl, String username, String password)
+    private String sendReport(String normalizedUrl, String username, String password, String reportXml)
             throws IOException, InterruptedException {
         var credentials = Base64.getEncoder().encodeToString(
                 (username + ":" + password).getBytes(StandardCharsets.UTF_8));
@@ -668,7 +749,7 @@ class CalDavClient {
 
         var request = HttpRequest.newBuilder()
                 .uri(URI.create(normalizedUrl))
-                .method("REPORT", HttpRequest.BodyPublishers.ofString(PRINCIPAL_SEARCH_XML))
+                .method("REPORT", HttpRequest.BodyPublishers.ofString(reportXml))
                 .header("Content-Type", "application/xml; charset=utf-8")
                 .header("Depth", "0")
                 .header("Authorization", "Basic " + credentials)
