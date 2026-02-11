@@ -261,6 +261,12 @@ class CalDavClient {
      * XML template for a REPORT calendar-query that fetches VEVENT data
      * within a time range. The placeholders {@code {{START}}} and {@code {{END}}}
      * are replaced with iCalendar date-time strings.
+     * <p>
+     * Uses the {@code <c:expand>} element (RFC 4791 Section 9.6.5) to instruct
+     * the server to expand recurring events into individual recurrence instances.
+     * This means the response contains flat VEVENTs with concrete DTSTART/DTEND
+     * values (in UTC) instead of RRULE-based recurring definitions, so the client
+     * does not need to perform recurrence expansion.
      */
     private static final String CALENDAR_QUERY_XML_TEMPLATE = """
             <?xml version="1.0" encoding="UTF-8"?>
@@ -268,7 +274,9 @@ class CalDavClient {
                               xmlns:c="urn:ietf:params:xml:ns:caldav">
               <d:prop>
                 <d:getetag/>
-                <c:calendar-data/>
+                <c:calendar-data>
+                  <c:expand start="{{START}}" end="{{END}}"/>
+                </c:calendar-data>
               </d:prop>
               <c:filter>
                 <c:comp-filter name="VCALENDAR">
@@ -413,12 +421,17 @@ class CalDavClient {
     private static final Pattern SUMMARY_PATTERN = Pattern.compile("(?m)^SUMMARY[;:](.*)$");
     private static final Pattern DTSTART_PATTERN = Pattern.compile("(?m)^DTSTART[;:](.*)$");
     private static final Pattern DTEND_PATTERN = Pattern.compile("(?m)^DTEND[;:](.*)$");
+    private static final Pattern DURATION_PATTERN = Pattern.compile("(?m)^DURATION[;:](.*)$");
     private static final Pattern CLASS_PATTERN = Pattern.compile("(?m)^CLASS[;:](.*)$");
     private static final Pattern FREEBUSY_PATTERN = Pattern.compile("(?m)^FREEBUSY[;:](.*)$");
 
     /**
      * Parses raw iCalendar text data into {@link CalDavEvent} records.
-     * Handles VEVENT blocks, extracts SUMMARY, DTSTART, DTEND, and CLASS properties.
+     * Handles VEVENT blocks, extracts SUMMARY, DTSTART, DTEND (or DURATION), and CLASS properties.
+     * <p>
+     * When {@code DTEND} is not present but {@code DURATION} is, the end time is computed
+     * from {@code DTSTART + DURATION}. This is important for server-expanded recurring events,
+     * which may use {@code DURATION} instead of {@code DTEND}.
      */
     List<CalDavEvent> parseICalendarData(String icalData, boolean accessible) {
         var events = new ArrayList<CalDavEvent>();
@@ -439,6 +452,7 @@ class CalDavClient {
             var summary = extractICalProperty(veventBlock, SUMMARY_PATTERN);
             var dtstart = extractICalProperty(veventBlock, DTSTART_PATTERN);
             var dtend = extractICalProperty(veventBlock, DTEND_PATTERN);
+            var duration = extractICalProperty(veventBlock, DURATION_PATTERN);
             var classValue = extractICalProperty(veventBlock, CLASS_PATTERN);
 
             if (dtstart == null) {
@@ -449,6 +463,12 @@ class CalDavClient {
             var date = parseICalDate(dtstart);
             var startTime = parseICalTime(dtstart);
             var endTime = dtend != null ? parseICalTime(dtend) : null;
+
+            // Fall back to DURATION if DTEND is not present
+            if (endTime == null && duration != null && startTime != null) {
+                endTime = parseDurationEndTime(startTime, duration.strip());
+            }
+
             var status = classValue != null ? classValue.strip() : "PUBLIC";
 
             if (date == null) {

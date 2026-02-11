@@ -331,4 +331,313 @@ class CalDavClientTest {
         assertThat(events.get(1).status()).isEqualTo("BUSY");
         assertThat(events.get(1).accessible()).isFalse();
     }
+
+    // =========================================================================
+    // Expanded recurring event parsing tests
+    // =========================================================================
+
+    @Test
+    void parsing_expanded_recurring_event_returns_individual_occurrences() {
+        // When the server expands a weekly recurring event with <c:expand>,
+        // it returns one VEVENT per occurrence with concrete UTC times and
+        // RECURRENCE-ID for non-initial instances. No RRULE is present.
+        var ical = """
+                BEGIN:VCALENDAR
+                VERSION:2.0
+                PRODID:-//Example//NONSGML CalDAV Server//EN
+                BEGIN:VEVENT
+                DTSTART:20250210T100000Z
+                DTEND:20250210T110000Z
+                SUMMARY:Weekly Meeting
+                RECURRENCE-ID:20250210T100000Z
+                UID:recurring-1@example.com
+                END:VEVENT
+                BEGIN:VEVENT
+                DTSTART:20250212T100000Z
+                DTEND:20250212T110000Z
+                SUMMARY:Weekly Meeting
+                RECURRENCE-ID:20250212T100000Z
+                UID:recurring-1@example.com
+                END:VEVENT
+                END:VCALENDAR
+                """;
+
+        var events = client.parseICalendarData(ical, true);
+
+        assertThat(events).hasSize(2);
+
+        assertThat(events.get(0).summary()).isEqualTo("Weekly Meeting");
+        assertThat(events.get(0).date()).isEqualTo(java.time.LocalDate.of(2025, 2, 10));
+        assertThat(events.get(0).startTime()).isEqualTo(java.time.LocalTime.of(10, 0));
+        assertThat(events.get(0).endTime()).isEqualTo(java.time.LocalTime.of(11, 0));
+        assertThat(events.get(0).accessible()).isTrue();
+
+        assertThat(events.get(1).summary()).isEqualTo("Weekly Meeting");
+        assertThat(events.get(1).date()).isEqualTo(java.time.LocalDate.of(2025, 2, 12));
+        assertThat(events.get(1).startTime()).isEqualTo(java.time.LocalTime.of(10, 0));
+        assertThat(events.get(1).endTime()).isEqualTo(java.time.LocalTime.of(11, 0));
+        assertThat(events.get(1).accessible()).isTrue();
+    }
+
+    @Test
+    void parsing_expanded_recurring_event_with_overridden_instance() {
+        // A recurring event where one occurrence has been modified (e.g., moved
+        // to a different time). The server returns the modified instance with
+        // its own DTSTART/DTEND.
+        var ical = """
+                BEGIN:VCALENDAR
+                VERSION:2.0
+                BEGIN:VEVENT
+                DTSTART:20250210T100000Z
+                DTEND:20250210T110000Z
+                SUMMARY:Weekly Meeting
+                RECURRENCE-ID:20250210T100000Z
+                UID:recurring-2@example.com
+                END:VEVENT
+                BEGIN:VEVENT
+                DTSTART:20250217T140000Z
+                DTEND:20250217T150000Z
+                SUMMARY:Weekly Meeting (moved)
+                RECURRENCE-ID:20250217T100000Z
+                UID:recurring-2@example.com
+                END:VEVENT
+                END:VCALENDAR
+                """;
+
+        var events = client.parseICalendarData(ical, true);
+
+        assertThat(events).hasSize(2);
+
+        // First occurrence: normal time
+        assertThat(events.get(0).date()).isEqualTo(java.time.LocalDate.of(2025, 2, 10));
+        assertThat(events.get(0).startTime()).isEqualTo(java.time.LocalTime.of(10, 0));
+        assertThat(events.get(0).summary()).isEqualTo("Weekly Meeting");
+
+        // Second occurrence: moved to 14:00
+        assertThat(events.get(1).date()).isEqualTo(java.time.LocalDate.of(2025, 2, 17));
+        assertThat(events.get(1).startTime()).isEqualTo(java.time.LocalTime.of(14, 0));
+        assertThat(events.get(1).endTime()).isEqualTo(java.time.LocalTime.of(15, 0));
+        assertThat(events.get(1).summary()).isEqualTo("Weekly Meeting (moved)");
+    }
+
+    @Test
+    void parsing_expanded_all_day_recurring_event() {
+        // An expanded all-day recurring event uses VALUE=DATE format
+        var ical = """
+                BEGIN:VCALENDAR
+                VERSION:2.0
+                BEGIN:VEVENT
+                DTSTART;VALUE=DATE:20250210
+                DTEND;VALUE=DATE:20250211
+                SUMMARY:Daily Standup
+                RECURRENCE-ID;VALUE=DATE:20250210
+                UID:allday-recurring@example.com
+                END:VEVENT
+                BEGIN:VEVENT
+                DTSTART;VALUE=DATE:20250211
+                DTEND;VALUE=DATE:20250212
+                SUMMARY:Daily Standup
+                RECURRENCE-ID;VALUE=DATE:20250211
+                UID:allday-recurring@example.com
+                END:VEVENT
+                END:VCALENDAR
+                """;
+
+        var events = client.parseICalendarData(ical, true);
+
+        assertThat(events).hasSize(2);
+
+        assertThat(events.get(0).date()).isEqualTo(java.time.LocalDate.of(2025, 2, 10));
+        assertThat(events.get(0).startTime()).isNull(); // all-day
+        assertThat(events.get(0).endTime()).isNull(); // all-day
+        assertThat(events.get(0).summary()).isEqualTo("Daily Standup");
+
+        assertThat(events.get(1).date()).isEqualTo(java.time.LocalDate.of(2025, 2, 11));
+        assertThat(events.get(1).startTime()).isNull();
+        assertThat(events.get(1).endTime()).isNull();
+    }
+
+    @Test
+    void parsing_calendar_query_response_with_expanded_recurring_events() {
+        // Full multistatus XML response with expanded recurring event data,
+        // as returned by a calendar-query with <c:expand>
+        var xml = """
+                <?xml version="1.0" encoding="utf-8"?>
+                <multistatus xmlns="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav">
+                  <response>
+                    <href>/caldav.php/user/calendar/recurring-event.ics</href>
+                    <propstat>
+                      <prop>
+                        <getetag>"etag-123"</getetag>
+                        <C:calendar-data>BEGIN:VCALENDAR
+                VERSION:2.0
+                BEGIN:VEVENT
+                DTSTART:20250210T090000Z
+                DTEND:20250210T100000Z
+                SUMMARY:Team Sync
+                RECURRENCE-ID:20250210T090000Z
+                UID:weekly-sync@example.com
+                END:VEVENT
+                BEGIN:VEVENT
+                DTSTART:20250214T090000Z
+                DTEND:20250214T100000Z
+                SUMMARY:Team Sync
+                RECURRENCE-ID:20250214T090000Z
+                UID:weekly-sync@example.com
+                END:VEVENT
+                END:VCALENDAR
+                </C:calendar-data>
+                      </prop>
+                      <status>HTTP/1.1 200 OK</status>
+                    </propstat>
+                  </response>
+                </multistatus>
+                """;
+
+        var events = client.parseCalendarQueryResponse(xml, true);
+
+        assertThat(events).hasSize(2);
+
+        assertThat(events.get(0).summary()).isEqualTo("Team Sync");
+        assertThat(events.get(0).date()).isEqualTo(java.time.LocalDate.of(2025, 2, 10));
+        assertThat(events.get(0).startTime()).isEqualTo(java.time.LocalTime.of(9, 0));
+
+        assertThat(events.get(1).summary()).isEqualTo("Team Sync");
+        assertThat(events.get(1).date()).isEqualTo(java.time.LocalDate.of(2025, 2, 14));
+        assertThat(events.get(1).startTime()).isEqualTo(java.time.LocalTime.of(9, 0));
+    }
+
+    // =========================================================================
+    // DURATION property parsing tests
+    // =========================================================================
+
+    @Test
+    void parsing_event_with_duration_instead_of_dtend() {
+        // Some servers (especially when expanding recurring events) use
+        // DURATION instead of DTEND
+        var ical = """
+                BEGIN:VCALENDAR
+                VERSION:2.0
+                BEGIN:VEVENT
+                DTSTART:20250210T100000Z
+                DURATION:PT1H
+                SUMMARY:One Hour Meeting
+                UID:duration-1@example.com
+                END:VEVENT
+                END:VCALENDAR
+                """;
+
+        var events = client.parseICalendarData(ical, true);
+
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0).summary()).isEqualTo("One Hour Meeting");
+        assertThat(events.get(0).date()).isEqualTo(java.time.LocalDate.of(2025, 2, 10));
+        assertThat(events.get(0).startTime()).isEqualTo(java.time.LocalTime.of(10, 0));
+        assertThat(events.get(0).endTime()).isEqualTo(java.time.LocalTime.of(11, 0));
+    }
+
+    @Test
+    void parsing_event_with_duration_90_minutes() {
+        var ical = """
+                BEGIN:VCALENDAR
+                VERSION:2.0
+                BEGIN:VEVENT
+                DTSTART:20250210T140000Z
+                DURATION:PT1H30M
+                SUMMARY:Long Meeting
+                UID:duration-2@example.com
+                END:VEVENT
+                END:VCALENDAR
+                """;
+
+        var events = client.parseICalendarData(ical, true);
+
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0).startTime()).isEqualTo(java.time.LocalTime.of(14, 0));
+        assertThat(events.get(0).endTime()).isEqualTo(java.time.LocalTime.of(15, 30));
+    }
+
+    @Test
+    void parsing_event_prefers_dtend_over_duration() {
+        // Per RFC 5545, DTEND and DURATION are mutually exclusive, but
+        // if both are present we should prefer DTEND
+        var ical = """
+                BEGIN:VCALENDAR
+                VERSION:2.0
+                BEGIN:VEVENT
+                DTSTART:20250210T100000Z
+                DTEND:20250210T113000Z
+                DURATION:PT1H
+                SUMMARY:Conflicting Props
+                UID:both@example.com
+                END:VEVENT
+                END:VCALENDAR
+                """;
+
+        var events = client.parseICalendarData(ical, true);
+
+        assertThat(events).hasSize(1);
+        // DTEND takes precedence
+        assertThat(events.get(0).endTime()).isEqualTo(java.time.LocalTime.of(11, 30));
+    }
+
+    @Test
+    void parsing_expanded_recurring_event_with_duration() {
+        // Typical DAViCal expanded response: recurring event uses DURATION
+        // instead of DTEND, each occurrence is a separate VEVENT
+        var ical = """
+                BEGIN:VCALENDAR
+                VERSION:2.0
+                BEGIN:VEVENT
+                DTSTART:20250210T090000Z
+                DURATION:PT1H
+                SUMMARY:Weekly Standup
+                RECURRENCE-ID:20250210T090000Z
+                UID:weekly-standup@example.com
+                END:VEVENT
+                BEGIN:VEVENT
+                DTSTART:20250217T090000Z
+                DURATION:PT1H
+                SUMMARY:Weekly Standup
+                RECURRENCE-ID:20250217T090000Z
+                UID:weekly-standup@example.com
+                END:VEVENT
+                END:VCALENDAR
+                """;
+
+        var events = client.parseICalendarData(ical, true);
+
+        assertThat(events).hasSize(2);
+
+        assertThat(events.get(0).date()).isEqualTo(java.time.LocalDate.of(2025, 2, 10));
+        assertThat(events.get(0).startTime()).isEqualTo(java.time.LocalTime.of(9, 0));
+        assertThat(events.get(0).endTime()).isEqualTo(java.time.LocalTime.of(10, 0));
+        assertThat(events.get(0).summary()).isEqualTo("Weekly Standup");
+
+        assertThat(events.get(1).date()).isEqualTo(java.time.LocalDate.of(2025, 2, 17));
+        assertThat(events.get(1).startTime()).isEqualTo(java.time.LocalTime.of(9, 0));
+        assertThat(events.get(1).endTime()).isEqualTo(java.time.LocalTime.of(10, 0));
+    }
+
+    @Test
+    void parsing_all_day_event_without_duration_remains_all_day() {
+        // All-day events have no time component — DURATION should not interfere
+        var ical = """
+                BEGIN:VCALENDAR
+                VERSION:2.0
+                BEGIN:VEVENT
+                DTSTART;VALUE=DATE:20250210
+                SUMMARY:Holiday
+                UID:allday@example.com
+                END:VEVENT
+                END:VCALENDAR
+                """;
+
+        var events = client.parseICalendarData(ical, true);
+
+        assertThat(events).hasSize(1);
+        assertThat(events.get(0).date()).isEqualTo(java.time.LocalDate.of(2025, 2, 10));
+        assertThat(events.get(0).startTime()).isNull();
+        assertThat(events.get(0).endTime()).isNull();
+    }
 }
