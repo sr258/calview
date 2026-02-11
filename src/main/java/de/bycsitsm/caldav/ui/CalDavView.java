@@ -1,8 +1,11 @@
 package de.bycsitsm.caldav.ui;
 
+import com.vaadin.flow.component.AttachEvent;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.combobox.ComboBox;
+import com.vaadin.flow.component.dialog.Dialog;
+import com.vaadin.flow.component.formlayout.FormLayout;
 import com.vaadin.flow.component.grid.ColumnRendering;
 import com.vaadin.flow.component.grid.Grid;
 import com.vaadin.flow.component.html.Span;
@@ -23,6 +26,7 @@ import com.vaadin.flow.router.Route;
 import de.bycsitsm.base.ui.ViewToolbar;
 import de.bycsitsm.caldav.CalDavEvent;
 import de.bycsitsm.caldav.CalDavException;
+import de.bycsitsm.caldav.CalDavProperties;
 import de.bycsitsm.caldav.CalDavService;
 import de.bycsitsm.caldav.CalDavUser;
 import org.jspecify.annotations.Nullable;
@@ -81,12 +85,11 @@ class CalDavView extends VerticalLayout {
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("H:mm");
 
     private final CalDavService calDavService;
+    private final CalDavProperties calDavProperties;
 
-    // Connection fields
-    private final TextField urlField;
-    private final TextField usernameField;
-    private final PasswordField passwordField;
-    private final Button connectButton;
+    // Toolbar connection controls
+    private final Button loginButton;
+    private final Span connectionStatus;
     private final ComboBox<CalDavUser> userSearchBox;
 
     // Week navigation
@@ -100,6 +103,11 @@ class CalDavView extends VerticalLayout {
 
     /** Tracks whether the user has successfully connected to the server. */
     private boolean connected;
+
+    /** Stored credentials from the login dialog (set after successful connection). */
+    private @Nullable String connectedUrl;
+    private @Nullable String connectedUsername;
+    private @Nullable String connectedPassword;
 
     /** Maintains the set of selected users in insertion order. */
     private final Set<CalDavUser> selectedUsers = new LinkedHashSet<>();
@@ -119,8 +127,9 @@ class CalDavView extends VerticalLayout {
     /** Slot keys used as column identifiers: "0-07:00", "0-07:30", ..., "4-18:30". */
     private final List<String> slotKeys;
 
-    CalDavView(CalDavService calDavService) {
+    CalDavView(CalDavService calDavService, CalDavProperties calDavProperties) {
         this.calDavService = calDavService;
+        this.calDavProperties = calDavProperties;
 
         setSizeFull();
         setPadding(false);
@@ -141,22 +150,17 @@ class CalDavView extends VerticalLayout {
         // Initialize current week
         currentWeekStart = LocalDate.now().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
 
-        // --- Connection form fields ---
-        urlField = new TextField("CalDAV URL");
-        urlField.setPlaceholder("https://calendar.example.com/caldav.php/");
-        urlField.setWidthFull();
-        urlField.setClearButtonVisible(true);
+        // --- Toolbar with login button and connection status ---
+        connectionStatus = new Span("Not connected");
+        connectionStatus.getStyle()
+                .set("color", "var(--lumo-secondary-text-color)")
+                .set("font-size", "var(--lumo-font-size-s)");
 
-        usernameField = new TextField("Username");
-        usernameField.setClearButtonVisible(true);
-
-        passwordField = new PasswordField("Password");
-
-        connectButton = new Button("Connect", event -> connect());
-        connectButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+        loginButton = new Button("Connect", VaadinIcon.CONNECT.create(), event -> openLoginDialog());
+        loginButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
 
         var toolbar = new ViewToolbar("Planner",
-                ViewToolbar.group(urlField, usernameField, passwordField, connectButton));
+                ViewToolbar.group(connectionStatus, loginButton));
         add(toolbar);
 
         // --- Main content area ---
@@ -251,16 +255,12 @@ class CalDavView extends VerticalLayout {
     }
 
     private List<CalDavUser> searchUsersOnServer(String searchTerm) {
-        var url = urlField.getValue();
-        var username = usernameField.getValue();
-        var password = passwordField.getValue();
-
-        if (!connected || url.isBlank() || username.isBlank() || password.isBlank()) {
+        if (!connected || connectedUrl == null || connectedUsername == null || connectedPassword == null) {
             return List.of();
         }
 
         try {
-            var results = calDavService.searchUsers(url, username, password, searchTerm);
+            var results = calDavService.searchUsers(connectedUrl, connectedUsername, connectedPassword, searchTerm);
             return results.stream()
                     .filter(user -> !selectedUsers.contains(user))
                     .toList();
@@ -322,12 +322,13 @@ class CalDavView extends VerticalLayout {
     // =========================================================================
 
     private void fetchEventsForUser(CalDavUser user) {
-        var url = urlField.getValue();
-        var username = usernameField.getValue();
-        var password = passwordField.getValue();
+        if (connectedUrl == null || connectedUsername == null || connectedPassword == null) {
+            return;
+        }
 
         try {
-            var events = calDavService.fetchWeekEvents(url, user.href(), username, password, currentWeekStart);
+            var events = calDavService.fetchWeekEvents(connectedUrl, user.href(),
+                    connectedUsername, connectedPassword, currentWeekStart);
             userEvents.put(user, events);
             failedUsers.remove(user);
         } catch (CalDavException e) {
@@ -718,36 +719,133 @@ class CalDavView extends VerticalLayout {
     // Connection
     // =========================================================================
 
-    private void connect() {
-        var url = urlField.getValue();
-        var username = usernameField.getValue();
-        var password = passwordField.getValue();
+    /**
+     * Opens the login dialog for connecting to a CalDAV server.
+     * Pre-fills the URL field with the configured default URL.
+     */
+    private void openLoginDialog() {
+        var dialog = new Dialog();
+        dialog.setHeaderTitle("Connect to CalDAV Server");
+        dialog.setCloseOnOutsideClick(connected);
+        dialog.setCloseOnEsc(connected);
+        dialog.setWidth("450px");
 
-        if (url.isBlank() || username.isBlank() || password.isBlank()) {
-            Notification.show("Please fill in all fields.", 3000, Notification.Position.BOTTOM_CENTER)
-                    .addThemeVariants(NotificationVariant.LUMO_WARNING);
-            return;
+        var urlField = new TextField("CalDAV URL");
+        urlField.setWidthFull();
+        urlField.setClearButtonVisible(true);
+        urlField.setValue(connectedUrl != null ? connectedUrl : calDavProperties.defaultUrl());
+
+        var usernameField = new TextField("Username");
+        usernameField.setWidthFull();
+        usernameField.setClearButtonVisible(true);
+        if (connectedUsername != null) {
+            usernameField.setValue(connectedUsername);
         }
 
-        connectButton.setEnabled(false);
-        connectButton.setText("Connecting...");
+        var passwordField = new PasswordField("Password");
+        passwordField.setWidthFull();
 
-        try {
-            calDavService.searchUsers(url, username, password, "a");
-            connected = true;
-            userSearchBox.setEnabled(true);
+        var formLayout = new FormLayout(urlField, usernameField, passwordField);
+        formLayout.setResponsiveSteps(new FormLayout.ResponsiveStep("0", 1));
+        dialog.add(formLayout);
 
-            Notification.show("Connected successfully. You can now search for users.", 3000,
-                            Notification.Position.BOTTOM_CENTER)
-                    .addThemeVariants(NotificationVariant.LUMO_SUCCESS);
-        } catch (CalDavException e) {
-            connected = false;
-            userSearchBox.setEnabled(false);
-            Notification.show(e.getMessage(), 5000, Notification.Position.BOTTOM_CENTER)
-                    .addThemeVariants(NotificationVariant.LUMO_ERROR);
-        } finally {
-            connectButton.setEnabled(true);
-            connectButton.setText("Connect");
+        var connectButton = new Button("Connect", event -> {
+            var url = urlField.getValue();
+            var username = usernameField.getValue();
+            var password = passwordField.getValue();
+
+            if (url.isBlank() || username.isBlank() || password.isBlank()) {
+                Notification.show("Please fill in all fields.", 3000, Notification.Position.BOTTOM_CENTER)
+                        .addThemeVariants(NotificationVariant.LUMO_WARNING);
+                return;
+            }
+
+            event.getSource().setEnabled(false);
+            event.getSource().setText("Connecting...");
+
+            try {
+                calDavService.searchUsers(url, username, password, "a");
+
+                connectedUrl = url;
+                connectedUsername = username;
+                connectedPassword = password;
+                connected = true;
+
+                userSearchBox.setEnabled(true);
+                updateConnectionStatus();
+
+                dialog.close();
+
+                Notification.show("Connected successfully. You can now search for users.", 3000,
+                                Notification.Position.BOTTOM_CENTER)
+                        .addThemeVariants(NotificationVariant.LUMO_SUCCESS);
+            } catch (CalDavException e) {
+                Notification.show(e.getMessage(), 5000, Notification.Position.BOTTOM_CENTER)
+                        .addThemeVariants(NotificationVariant.LUMO_ERROR);
+            } finally {
+                event.getSource().setEnabled(true);
+                event.getSource().setText("Connect");
+            }
+        });
+        connectButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
+
+        var cancelButton = new Button("Cancel", event -> dialog.close());
+        cancelButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+        cancelButton.setVisible(connected);
+
+        dialog.getFooter().add(cancelButton, connectButton);
+
+        dialog.open();
+
+        // Focus the appropriate field
+        if (urlField.getValue().isBlank()) {
+            urlField.focus();
+        } else if (usernameField.getValue().isBlank()) {
+            usernameField.focus();
+        } else {
+            passwordField.focus();
+        }
+    }
+
+    /**
+     * Disconnects from the CalDAV server and resets state.
+     */
+    private void disconnect() {
+        connected = false;
+        connectedUrl = null;
+        connectedUsername = null;
+        connectedPassword = null;
+
+        userSearchBox.setEnabled(false);
+        selectedUsers.clear();
+        userEvents.clear();
+        failedUsers.clear();
+        rebuildScheduleGrid();
+        updateConnectionStatus();
+    }
+
+    /**
+     * Updates the toolbar connection status and button label.
+     */
+    private void updateConnectionStatus() {
+        if (connected && connectedUsername != null) {
+            connectionStatus.setText("Connected as " + connectedUsername);
+            connectionStatus.getStyle().set("color", "var(--lumo-success-text-color)");
+            loginButton.setText("Reconnect");
+            loginButton.setIcon(VaadinIcon.CONNECT.create());
+        } else {
+            connectionStatus.setText("Not connected");
+            connectionStatus.getStyle().set("color", "var(--lumo-secondary-text-color)");
+            loginButton.setText("Connect");
+            loginButton.setIcon(VaadinIcon.CONNECT.create());
+        }
+    }
+
+    @Override
+    protected void onAttach(AttachEvent attachEvent) {
+        super.onAttach(attachEvent);
+        if (!connected) {
+            openLoginDialog();
         }
     }
 
