@@ -38,14 +38,14 @@ import java.util.regex.Pattern;
  * Low-level CalDAV protocol client that communicates with CalDAV servers
  * using Java's built-in {@link HttpClient}.
  * <p>
- * Supports PROPFIND requests for calendar discovery, including two-level
- * discovery where the given URL points to a server root containing principals
- * rather than calendars directly (e.g. DAViCal's {@code /caldav.php/}).
+ * Supports discovering all principals (users) on the server via the
+ * {@code principal-property-search} REPORT method (RFC 3744), and
+ * fetching weekly events or free/busy data for individual users.
  * <p>
- * Also supports discovering all principals on the server via the
- * {@code principal-property-search} REPORT method (RFC 3744), which allows
- * listing calendars from users whose calendars are not shared with the
- * current user.
+ * When fetching events, the client uses a smart fallback strategy:
+ * it first attempts a {@code calendar-query} to get full event details,
+ * and if access is denied (HTTP 403), falls back to a
+ * {@code free-busy-query} to get busy time slots only.
  */
 @Component
 class CalDavClient {
@@ -54,8 +54,6 @@ class CalDavClient {
 
     private static final String DAV_NS = "DAV:";
     private static final String CALDAV_NS = "urn:ietf:params:xml:ns:caldav";
-    private static final String APPLE_ICAL_NS = "http://apple.com/ns/ical/";
-    private static final String CALENDARSERVER_NS = "http://calendarserver.org/ns/";
 
     private static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
@@ -69,25 +67,6 @@ class CalDavClient {
                     + "Set caldav.trust-all-certificates=false to enforce certificate validation.");
         }
     }
-
-    /**
-     * XML body for a PROPFIND request that discovers calendars and collections.
-     */
-    private static final String PROPFIND_CALENDARS_XML = """
-            <?xml version="1.0" encoding="UTF-8"?>
-            <d:propfind xmlns:d="DAV:"
-                        xmlns:cs="http://calendarserver.org/ns/"
-                        xmlns:c="urn:ietf:params:xml:ns:caldav"
-                        xmlns:ic="http://apple.com/ns/ical/">
-              <d:prop>
-                <d:displayname/>
-                <d:resourcetype/>
-                <c:calendar-description/>
-                <ic:calendar-color/>
-                <cs:getctag/>
-              </d:prop>
-            </d:propfind>
-            """;
 
     /**
      * XML body for a REPORT request that discovers all principals on the server.
@@ -110,166 +89,60 @@ class CalDavClient {
             """;
 
     /**
-     * Discovers all calendars accessible from the given CalDAV URL.
-     * <p>
-     * If the URL points directly at a principal's collection (e.g.
-     * {@code /caldav.php/username/}), calendars are returned directly.
-     * <p>
-     * If the URL points at a server root containing principals (e.g.
-     * {@code /caldav.php/}), a two-level discovery is performed: first
-     * the principals are listed, then each principal is queried for its
-     * calendars.
-     *
-     * @param url      the CalDAV URL
-     * @param username the username for authentication
-     * @param password the password for authentication
-     * @return a list of all discovered calendars
-     * @throws CalDavException if the request fails or the response cannot be parsed
-     */
-    List<CalDavCalendar> discoverCalendars(String url, String username, String password) {
-        try {
-            var normalizedUrl = normalizeUrl(url);
-            var responseBody = sendPropfind(normalizedUrl, username, password);
-            var parseResult = parseMultistatusResponse(responseBody, normalizedUrl);
-
-            if (!parseResult.calendars.isEmpty()) {
-                // Found calendars directly - URL pointed at a principal's collection
-                return parseResult.calendars;
-            }
-
-            if (!parseResult.childCollections.isEmpty()) {
-                // Found sub-collections but no calendars - likely principals.
-                // Query each one for calendars.
-                log.debug("No calendars found directly at {}, querying {} sub-collection(s)",
-                        normalizedUrl, parseResult.childCollections.size());
-                var allCalendars = new ArrayList<CalDavCalendar>();
-                for (var collectionHref : parseResult.childCollections) {
-                    var collectionUrl = resolveHref(normalizedUrl, collectionHref);
-                    try {
-                        var childResponse = sendPropfind(collectionUrl, username, password);
-                        var childResult = parseMultistatusResponse(childResponse, collectionUrl);
-                        allCalendars.addAll(childResult.calendars);
-                    } catch (CalDavException e) {
-                        log.warn("Failed to query sub-collection {}: {}", collectionUrl, e.getMessage());
-                        // Continue with other collections
-                    }
-                }
-                return allCalendars;
-            }
-
-            return List.of();
-        } catch (CalDavException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new CalDavException("Failed to discover calendars: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Discovers all principals on the server and then queries each one for
-     * calendars, including principals whose calendars are not shared with the
-     * current user.
-     * <p>
-     * For principals that the current user cannot access (HTTP 403), a single
-     * placeholder calendar entry is created with {@code accessible=false},
-     * using the principal's display name.
-     * <p>
-     * For accessible principals, their calendars are returned with
-     * {@code accessible=true} and the principal's display name as the owner.
+     * Discovers all users (principals) on the CalDAV server using the
+     * {@code principal-property-search} REPORT method.
      *
      * @param url      the CalDAV URL (typically the server root, e.g. {@code /caldav.php/})
      * @param username the username for authentication
      * @param password the password for authentication
-     * @return a list of all calendars, including inaccessible ones
-     * @throws CalDavException if the principal search fails
+     * @return a list of all discovered users
+     * @throws CalDavException if the request fails or the response cannot be parsed
      */
-    List<CalDavCalendar> discoverAllCalendars(String url, String username, String password) {
+    List<CalDavUser> discoverUsers(String url, String username, String password) {
         try {
             var normalizedUrl = normalizeUrl(url);
             var principals = discoverPrincipals(normalizedUrl, username, password);
 
-            if (principals.isEmpty()) {
-                log.info("No principals found, falling back to standard calendar discovery");
-                return discoverCalendars(url, username, password);
-            }
-
-            log.info("Found {} principal(s), querying each for calendars", principals.size());
-            var allCalendars = new ArrayList<CalDavCalendar>();
-
+            var users = new ArrayList<CalDavUser>();
             for (var principal : principals) {
-                var principalUrl = resolveHref(normalizedUrl, principal.href());
-                try {
-                    var responseBody = sendPropfind(principalUrl, username, password);
-                    var parseResult = parseMultistatusResponse(responseBody, principalUrl);
-
-                    for (var calendar : parseResult.calendars) {
-                        allCalendars.add(new CalDavCalendar(
-                                calendar.displayName(),
-                                calendar.href(),
-                                calendar.description(),
-                                calendar.color(),
-                                calendar.ctag(),
-                                principal.displayName(),
-                                true
-                        ));
-                    }
-                } catch (CalDavException e) {
-                    if (e.getMessage() != null && e.getMessage().contains("Access denied")) {
-                        // Principal exists but calendars are not shared with us.
-                        // Use the default calendar collection path (principal href + "calendar/")
-                        // because free-busy-query must target a calendar resource, not the principal.
-                        var calendarHref = principal.href().endsWith("/")
-                                ? principal.href() + "calendar/"
-                                : principal.href() + "/calendar/";
-                        log.debug("No access to principal {}, using calendar href: {}",
-                                principal.displayName(), calendarHref);
-                        allCalendars.add(new CalDavCalendar(
-                                principal.displayName(),
-                                calendarHref,
-                                null,
-                                null,
-                                null,
-                                principal.displayName(),
-                                false
-                        ));
-                    } else {
-                        log.warn("Failed to query principal {}: {}", principal.displayName(), e.getMessage());
-                    }
-                }
+                users.add(new CalDavUser(principal.displayName(), principal.href()));
             }
-
-            return allCalendars;
+            return users;
         } catch (CalDavException e) {
             throw e;
         } catch (Exception e) {
-            throw new CalDavException("Failed to discover all calendars: " + e.getMessage(), e);
+            throw new CalDavException("Failed to discover users: " + e.getMessage(), e);
         }
     }
 
     /**
-     * Fetches events for the current week from the given calendar.
+     * Fetches events for the current week from the given user's default calendar.
      * <p>
-     * Uses a CalDAV REPORT {@code calendar-query} with a time-range filter
-     * to retrieve VEVENT components for the current week (Monday to Sunday).
-     * The response contains raw iCalendar data which is parsed into
-     * {@link CalDavEvent} records.
+     * Uses a smart fallback strategy: first attempts a CalDAV REPORT
+     * {@code calendar-query} to retrieve full event details (summary, time,
+     * status). If the server returns HTTP 403 (access denied), falls back to
+     * a {@code free-busy-query} which returns only busy time slots without
+     * event details.
      * <p>
-     * The {@code calendarHref} may be a relative path (e.g. {@code /caldav.php/user/calendar/})
-     * as returned by the server in PROPFIND responses. It is resolved against
-     * the {@code baseUrl} to produce the full URL.
+     * The {@code userHref} is the principal's href as returned by
+     * {@link #discoverUsers}. The default calendar collection path is
+     * derived by appending {@code "calendar/"} to the user's href.
      *
-     * @param baseUrl      the base CalDAV URL used for the original connection
-     * @param calendarHref the href of the calendar (absolute URL or relative path)
-     * @param username     the username for authentication
-     * @param password     the password for authentication
-     * @param accessible   whether the calendar is accessible (affects event detail visibility)
+     * @param baseUrl  the base CalDAV URL used for the original connection
+     * @param userHref the href of the user's principal collection
+     * @param username the username for authentication
+     * @param password the password for authentication
      * @return a list of events for the current week
      * @throws CalDavException if the request fails or the response cannot be parsed
      */
-    List<CalDavEvent> fetchWeekEvents(String baseUrl, String calendarHref, String username, String password, boolean accessible) {
+    List<CalDavEvent> fetchWeekEvents(String baseUrl, String userHref, String username, String password) {
         try {
             var normalizedBase = normalizeUrl(baseUrl);
-            var normalizedUrl = resolveHref(normalizedBase, calendarHref);
+            var calendarHref = userHref.endsWith("/")
+                    ? userHref + "calendar/"
+                    : userHref + "/calendar/";
+            var calendarUrl = resolveHref(normalizedBase, calendarHref);
+
             var today = LocalDate.now();
             var weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
             var weekEnd = weekStart.plusDays(7); // exclusive: Monday of next week
@@ -277,18 +150,24 @@ class CalDavClient {
             var startStr = weekStart.format(ICAL_DATE_FORMATTER) + "T000000Z";
             var endStr = weekEnd.format(ICAL_DATE_FORMATTER) + "T000000Z";
 
-            if (accessible) {
+            // Try calendar-query first for full event details
+            try {
                 var reportXml = CALENDAR_QUERY_XML_TEMPLATE
                         .replace("{{START}}", startStr)
                         .replace("{{END}}", endStr);
-                var responseBody = sendCalendarReport(normalizedUrl, username, password, reportXml);
+                var responseBody = sendCalendarReport(calendarUrl, username, password, reportXml);
                 return parseCalendarQueryResponse(responseBody, true);
-            } else {
-                var reportXml = FREE_BUSY_QUERY_XML_TEMPLATE
-                        .replace("{{START}}", startStr)
-                        .replace("{{END}}", endStr);
-                var responseBody = sendFreeBusyReport(normalizedUrl, username, password, reportXml);
-                return parseFreeBusyResponse(responseBody);
+            } catch (CalDavException e) {
+                if (e.getMessage() != null && e.getMessage().contains("Access denied")) {
+                    // Fall back to free-busy-query for restricted calendars
+                    log.debug("Calendar-query denied for {}, falling back to free-busy-query", calendarUrl);
+                    var reportXml = FREE_BUSY_QUERY_XML_TEMPLATE
+                            .replace("{{START}}", startStr)
+                            .replace("{{END}}", endStr);
+                    var responseBody = sendFreeBusyReport(calendarUrl, username, password, reportXml);
+                    return parseFreeBusyResponse(responseBody);
+                }
+                throw e;
             }
         } catch (CalDavException e) {
             throw e;
@@ -573,11 +452,6 @@ class CalDavClient {
             // The regex captures everything after "FREEBUSY;" or "FREEBUSY:"
             // If the raw match group contains parameters (e.g. "FBTYPE=BUSY:periods"),
             // we need to split on the last colon that separates params from value.
-            // But extractICalProperty already handles this for single-value properties.
-            // For FREEBUSY, the full line looks like:
-            //   FREEBUSY;FBTYPE=BUSY:20250210T140000Z/20250210T150000Z
-            // After the pattern match, group(1) is "FBTYPE=BUSY:20250210T140000Z/20250210T150000Z"
-            // or just "20250210T140000Z/20250210T150000Z" if no params.
             var colonIdx = rawValue.indexOf(':');
             if (colonIdx >= 0 && rawValue.contains("=")) {
                 // Has parameters before the colon
@@ -777,42 +651,6 @@ class CalDavClient {
         return false;
     }
 
-    private String sendPropfind(String normalizedUrl, String username, String password)
-            throws IOException, InterruptedException {
-        var credentials = Base64.getEncoder().encodeToString(
-                (username + ":" + password).getBytes(StandardCharsets.UTF_8));
-
-        var clientBuilder = HttpClient.newBuilder()
-                .connectTimeout(CONNECT_TIMEOUT)
-                .followRedirects(HttpClient.Redirect.NORMAL);
-
-        if (trustAllCertificates) {
-            clientBuilder.sslContext(createTrustAllSslContext());
-        }
-
-        var httpClient = clientBuilder.build();
-
-        var request = HttpRequest.newBuilder()
-                .uri(URI.create(normalizedUrl))
-                .method("PROPFIND", HttpRequest.BodyPublishers.ofString(PROPFIND_CALENDARS_XML))
-                .header("Content-Type", "application/xml; charset=utf-8")
-                .header("Depth", "1")
-                .header("Authorization", "Basic " + credentials)
-                .timeout(REQUEST_TIMEOUT)
-                .build();
-
-        log.debug("Sending PROPFIND to {}", normalizedUrl);
-        var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-
-        return switch (response.statusCode()) {
-            case 207 -> response.body();
-            case 401 -> throw new CalDavException("Authentication failed. Please check your username and password.");
-            case 403 -> throw new CalDavException("Access denied. You don't have permission to access this calendar.");
-            case 404 -> throw new CalDavException("Calendar URL not found. Please check the URL.");
-            default -> throw new CalDavException("Server returned unexpected status " + response.statusCode() + ".");
-        };
-    }
-
     private String sendReport(String normalizedUrl, String username, String password)
             throws IOException, InterruptedException {
         var credentials = Base64.getEncoder().encodeToString(
@@ -847,116 +685,6 @@ class CalDavClient {
             case 404 -> throw new CalDavException("URL not found. Please check the URL.");
             default -> throw new CalDavException("Server returned unexpected status " + response.statusCode() + ".");
         };
-    }
-
-    /**
-     * Result of parsing a PROPFIND multistatus response. Contains both
-     * discovered calendars and non-calendar child collections (principals).
-     */
-    record PropfindResult(List<CalDavCalendar> calendars, List<String> childCollections) {
-    }
-
-    PropfindResult parseMultistatusResponse(String xml, String requestUrl) {
-        var calendars = new ArrayList<CalDavCalendar>();
-        var childCollections = new ArrayList<String>();
-        try {
-            var factory = DocumentBuilderFactory.newInstance();
-            factory.setNamespaceAware(true);
-            var builder = factory.newDocumentBuilder();
-            var document = builder.parse(new InputSource(new StringReader(xml)));
-
-            var responses = document.getElementsByTagNameNS(DAV_NS, "response");
-            for (int i = 0; i < responses.getLength(); i++) {
-                var response = (Element) responses.item(i);
-                var href = getTextContent(response, DAV_NS, "href");
-                if (href == null) {
-                    continue;
-                }
-
-                // Skip the response for the collection itself
-                if (isSameResource(href, requestUrl)) {
-                    continue;
-                }
-
-                // Only process successful responses
-                if (!isSuccessResponse(response)) {
-                    continue;
-                }
-
-                if (isCalendarResource(response)) {
-                    var calendar = parseCalendarFromResponse(response, href);
-                    if (calendar != null) {
-                        calendars.add(calendar);
-                    }
-                } else if (isCollectionResource(response)) {
-                    childCollections.add(href);
-                }
-            }
-        } catch (CalDavException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new CalDavException("Failed to parse server response: " + e.getMessage(), e);
-        }
-        return new PropfindResult(calendars, childCollections);
-    }
-
-    private @Nullable CalDavCalendar parseCalendarFromResponse(Element response, String href) {
-        var displayName = getPropertyText(response, DAV_NS, "displayname");
-        var description = getPropertyText(response, CALDAV_NS, "calendar-description");
-        var color = getPropertyText(response, APPLE_ICAL_NS, "calendar-color");
-        var ctag = getPropertyText(response, CALENDARSERVER_NS, "getctag");
-
-        // Use href as display name fallback
-        if (displayName == null || displayName.isBlank()) {
-            displayName = href;
-        }
-
-        // Normalize color to 7-char hex if it has alpha channel (#RRGGBBAA -> #RRGGBB)
-        if (color != null && color.length() == 9 && color.startsWith("#")) {
-            color = color.substring(0, 7);
-        }
-
-        return new CalDavCalendar(displayName, href, description, color, ctag, null, true);
-    }
-
-    private boolean isCalendarResource(Element response) {
-        var propstats = response.getElementsByTagNameNS(DAV_NS, "propstat");
-        for (int i = 0; i < propstats.getLength(); i++) {
-            var propstat = (Element) propstats.item(i);
-            var props = propstat.getElementsByTagNameNS(DAV_NS, "prop");
-            for (int j = 0; j < props.getLength(); j++) {
-                var prop = (Element) props.item(j);
-                var resourceTypes = prop.getElementsByTagNameNS(DAV_NS, "resourcetype");
-                for (int k = 0; k < resourceTypes.getLength(); k++) {
-                    var resourceType = (Element) resourceTypes.item(k);
-                    var calendarElements = resourceType.getElementsByTagNameNS(CALDAV_NS, "calendar");
-                    if (calendarElements.getLength() > 0) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
-    }
-
-    private boolean isCollectionResource(Element response) {
-        var propstats = response.getElementsByTagNameNS(DAV_NS, "propstat");
-        for (int i = 0; i < propstats.getLength(); i++) {
-            var propstat = (Element) propstats.item(i);
-            var props = propstat.getElementsByTagNameNS(DAV_NS, "prop");
-            for (int j = 0; j < props.getLength(); j++) {
-                var prop = (Element) props.item(j);
-                var resourceTypes = prop.getElementsByTagNameNS(DAV_NS, "resourcetype");
-                for (int k = 0; k < resourceTypes.getLength(); k++) {
-                    var resourceType = (Element) resourceTypes.item(k);
-                    var collectionElements = resourceType.getElementsByTagNameNS(DAV_NS, "collection");
-                    if (collectionElements.getLength() > 0) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
     }
 
     private boolean isSuccessResponse(Element response) {
@@ -994,26 +722,6 @@ class CalDavClient {
             return elements.item(0).getTextContent();
         }
         return null;
-    }
-
-    private boolean isSameResource(String href, String requestUrl) {
-        var normalizedHref = href.replaceAll("/+$", "");
-        var normalizedUrl = requestUrl.replaceAll("/+$", "");
-
-        if (normalizedUrl.endsWith(normalizedHref)) {
-            return true;
-        }
-
-        try {
-            var hrefPath = URI.create(normalizedHref).getPath();
-            var urlPath = URI.create(normalizedUrl).getPath();
-            if (hrefPath != null && urlPath != null) {
-                return hrefPath.replaceAll("/+$", "").equals(urlPath.replaceAll("/+$", ""));
-            }
-        } catch (IllegalArgumentException e) {
-            // If we can't parse, fall through to simple comparison
-        }
-        return normalizedHref.equals(normalizedUrl);
     }
 
     /**

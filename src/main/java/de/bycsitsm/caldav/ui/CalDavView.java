@@ -2,11 +2,9 @@ package de.bycsitsm.caldav.ui;
 
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
-import com.vaadin.flow.component.checkbox.Checkbox;
 import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.grid.Grid;
 import com.vaadin.flow.component.grid.GridVariant;
-import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.Span;
 import com.vaadin.flow.component.icon.Icon;
 import com.vaadin.flow.component.notification.Notification;
@@ -18,17 +16,17 @@ import com.vaadin.flow.router.Menu;
 import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import de.bycsitsm.base.ui.ViewToolbar;
-import de.bycsitsm.caldav.CalDavCalendar;
 import de.bycsitsm.caldav.CalDavEvent;
 import de.bycsitsm.caldav.CalDavException;
 import de.bycsitsm.caldav.CalDavService;
+import de.bycsitsm.caldav.CalDavUser;
 
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @Route("")
-@PageTitle("CalDAV Calendars")
-@Menu(order = 0, icon = "vaadin:calendar", title = "Calendars")
+@PageTitle("CalDAV Users")
+@Menu(order = 0, icon = "vaadin:calendar", title = "Users")
 class CalDavView extends VerticalLayout {
 
     private final CalDavService calDavService;
@@ -36,9 +34,8 @@ class CalDavView extends VerticalLayout {
     private final TextField urlField;
     private final TextField usernameField;
     private final PasswordField passwordField;
-    private final Checkbox includeAllCheckbox;
     private final Button connectButton;
-    private final Grid<CalDavCalendar> calendarGrid;
+    private final Grid<CalDavUser> userGrid;
 
     CalDavView(CalDavService calDavService) {
         this.calDavService = calDavService;
@@ -58,56 +55,33 @@ class CalDavView extends VerticalLayout {
 
         passwordField = new PasswordField("Password");
 
-        includeAllCheckbox = new Checkbox("Include all users");
-        includeAllCheckbox.setHelperText("Show calendars from users without shared access");
-
         connectButton = new Button("Connect", event -> connect());
         connectButton.addThemeVariants(ButtonVariant.LUMO_PRIMARY);
 
         // Toolbar
-        var toolbar = new ViewToolbar("Calendars",
-                ViewToolbar.group(urlField, usernameField, passwordField, includeAllCheckbox, connectButton));
+        var toolbar = new ViewToolbar("Users",
+                ViewToolbar.group(urlField, usernameField, passwordField, connectButton));
         add(toolbar);
 
-        // Calendar grid
-        calendarGrid = createCalendarGrid();
-        add(calendarGrid);
+        // User grid
+        userGrid = createUserGrid();
+        add(userGrid);
 
         // Click handler to show weekly appointments
-        calendarGrid.addItemClickListener(event -> showWeekEvents(event.getItem()));
+        userGrid.addItemClickListener(event -> showWeekEvents(event.getItem()));
     }
 
-    private Grid<CalDavCalendar> createCalendarGrid() {
-        var grid = new Grid<CalDavCalendar>();
+    private Grid<CalDavUser> createUserGrid() {
+        var grid = new Grid<CalDavUser>();
         grid.addThemeVariants(GridVariant.LUMO_ROW_STRIPES);
         grid.setSizeFull();
 
-        grid.addComponentColumn(this::createColorIndicator)
-                .setHeader("Color")
-                .setAutoWidth(true)
-                .setFlexGrow(0);
-
-        grid.addComponentColumn(this::createAccessBadge)
-                .setHeader("Access")
-                .setAutoWidth(true)
-                .setFlexGrow(0);
-
-        grid.addColumn(CalDavCalendar::displayName)
+        grid.addColumn(CalDavUser::displayName)
                 .setHeader("Name")
                 .setAutoWidth(true)
                 .setFlexGrow(1);
 
-        grid.addColumn(calendar -> calendar.owner() != null ? calendar.owner() : "")
-                .setHeader("Owner")
-                .setAutoWidth(true)
-                .setFlexGrow(1);
-
-        grid.addColumn(calendar -> calendar.description() != null ? calendar.description() : "")
-                .setHeader("Description")
-                .setAutoWidth(true)
-                .setFlexGrow(2);
-
-        grid.addColumn(CalDavCalendar::href)
+        grid.addColumn(CalDavUser::href)
                 .setHeader("Path")
                 .setAutoWidth(true)
                 .setFlexGrow(1);
@@ -115,29 +89,10 @@ class CalDavView extends VerticalLayout {
         return grid;
     }
 
-    private Div createColorIndicator(CalDavCalendar calendar) {
-        var indicator = new Div();
-        indicator.setWidth("20px");
-        indicator.setHeight("20px");
-        indicator.getStyle()
-                .set("border-radius", "4px")
-                .set("background-color", calendar.color() != null ? calendar.color() : "#808080");
-        if (!calendar.accessible()) {
-            indicator.getStyle().set("opacity", "0.4");
-        }
-        return indicator;
-    }
-
-    private Span createAccessBadge(CalDavCalendar calendar) {
-        var badge = new Span(calendar.accessible() ? "Accessible" : "Restricted");
-        badge.getElement().getThemeList().add("badge " + (calendar.accessible() ? "success" : "contrast") + " small");
-        return badge;
-    }
-
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("EEE, MMM d");
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
-    private void showWeekEvents(CalDavCalendar calendar) {
+    private void showWeekEvents(CalDavUser user) {
         var url = urlField.getValue();
         var username = usernameField.getValue();
         var password = passwordField.getValue();
@@ -147,11 +102,10 @@ class CalDavView extends VerticalLayout {
         }
 
         try {
-            var events = calDavService.fetchWeekEvents(
-                    url, calendar.href(), username, password, calendar.accessible());
+            var events = calDavService.fetchWeekEvents(url, user.href(), username, password);
 
             var dialog = new Dialog();
-            dialog.setHeaderTitle("This Week — " + calendar.displayName());
+            dialog.setHeaderTitle("This Week \u2014 " + user.displayName());
             dialog.setWidth("700px");
             dialog.setMaxHeight("80vh");
             dialog.setDraggable(true);
@@ -169,7 +123,7 @@ class CalDavView extends VerticalLayout {
                         .set("padding", "var(--lumo-space-m)");
                 dialog.add(emptyMessage);
             } else {
-                var eventGrid = createEventGrid(calendar.accessible());
+                var eventGrid = createEventGrid(events);
                 eventGrid.setItems(events);
                 dialog.add(eventGrid);
             }
@@ -187,7 +141,7 @@ class CalDavView extends VerticalLayout {
         }
     }
 
-    private Grid<CalDavEvent> createEventGrid(boolean accessible) {
+    private Grid<CalDavEvent> createEventGrid(List<CalDavEvent> events) {
         var grid = new Grid<CalDavEvent>();
         grid.addThemeVariants(GridVariant.LUMO_ROW_STRIPES, GridVariant.LUMO_COMPACT);
         grid.setAllRowsVisible(true);
@@ -202,7 +156,10 @@ class CalDavView extends VerticalLayout {
                 .setAutoWidth(true)
                 .setFlexGrow(0);
 
-        if (accessible) {
+        // Determine if any events have accessible details (calendar-query succeeded)
+        var hasAccessibleEvents = events.stream().anyMatch(CalDavEvent::accessible);
+
+        if (hasAccessibleEvents) {
             grid.addColumn(event -> event.summary() != null ? event.summary() : "(No title)")
                     .setHeader("Name")
                     .setAutoWidth(true)
@@ -233,7 +190,7 @@ class CalDavView extends VerticalLayout {
         }
         var start = event.startTime().format(TIME_FORMATTER);
         if (event.endTime() != null) {
-            return start + " – " + event.endTime().format(TIME_FORMATTER);
+            return start + " \u2013 " + event.endTime().format(TIME_FORMATTER);
         }
         return start;
     }
@@ -264,7 +221,6 @@ class CalDavView extends VerticalLayout {
         var url = urlField.getValue();
         var username = usernameField.getValue();
         var password = passwordField.getValue();
-        var includeAll = includeAllCheckbox.getValue();
 
         if (url.isBlank() || username.isBlank() || password.isBlank()) {
             Notification.show("Please fill in all fields.", 3000, Notification.Position.BOTTOM_CENTER)
@@ -276,30 +232,19 @@ class CalDavView extends VerticalLayout {
         connectButton.setText("Connecting...");
 
         try {
-            List<CalDavCalendar> calendars;
-            if (includeAll) {
-                calendars = calDavService.discoverAllCalendars(url, username, password);
-            } else {
-                calendars = calDavService.discoverCalendars(url, username, password);
-            }
-            calendarGrid.setItems(calendars);
+            var users = calDavService.discoverUsers(url, username, password);
+            userGrid.setItems(users);
 
-            if (calendars.isEmpty()) {
-                Notification.show("Connected successfully, but no calendars were found.", 5000,
+            if (users.isEmpty()) {
+                Notification.show("Connected successfully, but no users were found.", 5000,
                         Notification.Position.BOTTOM_CENTER);
             } else {
-                var accessible = calendars.stream().filter(CalDavCalendar::accessible).count();
-                var inaccessible = calendars.size() - accessible;
-                var message = "Found " + calendars.size() + " calendar(s)";
-                if (inaccessible > 0) {
-                    message += " (" + accessible + " accessible, " + inaccessible + " restricted)";
-                }
-                message += ".";
-                Notification.show(message, 3000, Notification.Position.BOTTOM_CENTER)
+                Notification.show("Found " + users.size() + " user(s).", 3000,
+                                Notification.Position.BOTTOM_CENTER)
                         .addThemeVariants(NotificationVariant.LUMO_SUCCESS);
             }
         } catch (CalDavException e) {
-            calendarGrid.setItems(List.of());
+            userGrid.setItems(List.of());
             Notification.show(e.getMessage(), 5000, Notification.Position.BOTTOM_CENTER)
                     .addThemeVariants(NotificationVariant.LUMO_ERROR);
         } finally {

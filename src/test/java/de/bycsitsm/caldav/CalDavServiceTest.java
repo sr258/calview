@@ -10,22 +10,22 @@ class CalDavServiceTest {
     private final CalDavService calDavService = new CalDavService(calDavClient);
 
     @Test
-    void discover_calendars_rejects_blank_url() {
-        assertThatThrownBy(() -> calDavService.discoverCalendars("", "user", "pass"))
+    void discover_users_rejects_blank_url() {
+        assertThatThrownBy(() -> calDavService.discoverUsers("", "user", "pass"))
                 .isInstanceOf(CalDavException.class)
                 .hasMessageContaining("URL must not be empty");
     }
 
     @Test
-    void discover_calendars_rejects_blank_username() {
-        assertThatThrownBy(() -> calDavService.discoverCalendars("https://example.com", "", "pass"))
+    void discover_users_rejects_blank_username() {
+        assertThatThrownBy(() -> calDavService.discoverUsers("https://example.com", "", "pass"))
                 .isInstanceOf(CalDavException.class)
                 .hasMessageContaining("Username must not be empty");
     }
 
     @Test
-    void discover_calendars_rejects_blank_password() {
-        assertThatThrownBy(() -> calDavService.discoverCalendars("https://example.com", "user", ""))
+    void discover_users_rejects_blank_password() {
+        assertThatThrownBy(() -> calDavService.discoverUsers("https://example.com", "user", ""))
                 .isInstanceOf(CalDavException.class)
                 .hasMessageContaining("Password must not be empty");
     }

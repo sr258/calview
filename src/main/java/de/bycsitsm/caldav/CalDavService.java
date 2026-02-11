@@ -22,74 +22,45 @@ public class CalDavService {
     }
 
     /**
-     * Connects to a CalDAV server and discovers available calendars.
-     *
-     * @param url      the CalDAV URL to connect to
-     * @param username the username for authentication
-     * @param password the password for authentication
-     * @return a list of discovered calendars
-     * @throws CalDavException if validation fails or the connection cannot be established
-     */
-    public List<CalDavCalendar> discoverCalendars(String url, String username, String password) {
-        validateInputs(url, username, password);
-
-        log.info("Discovering calendars at {} for user {}", url, username);
-        var calendars = calDavClient.discoverCalendars(url, username, password);
-        log.info("Discovered {} calendar(s) at {}", calendars.size(), url);
-
-        return calendars;
-    }
-
-    /**
-     * Connects to a CalDAV server and discovers all calendars, including
-     * those belonging to principals whose calendars are not shared with
-     * the current user. Uses the {@code principal-property-search} REPORT
-     * to enumerate all principals, then queries each for their calendars.
-     * <p>
-     * Principals that deny access (HTTP 403) are included as inaccessible
-     * entries with {@code accessible=false}.
+     * Connects to a CalDAV server and discovers all users (principals).
+     * Uses the {@code principal-property-search} REPORT to enumerate
+     * all principals on the server.
      *
      * @param url      the CalDAV URL to connect to (typically the server root)
      * @param username the username for authentication
      * @param password the password for authentication
-     * @return a list of all calendars, including inaccessible ones
+     * @return a list of all discovered users
      * @throws CalDavException if validation fails or the connection cannot be established
      */
-    public List<CalDavCalendar> discoverAllCalendars(String url, String username, String password) {
+    public List<CalDavUser> discoverUsers(String url, String username, String password) {
         validateInputs(url, username, password);
 
-        log.info("Discovering all calendars (including inaccessible) at {} for user {}", url, username);
-        var calendars = calDavClient.discoverAllCalendars(url, username, password);
+        log.info("Discovering users at {} for user {}", url, username);
+        var users = calDavClient.discoverUsers(url, username, password);
+        log.info("Discovered {} user(s) at {}", users.size(), url);
 
-        var accessible = calendars.stream().filter(CalDavCalendar::accessible).count();
-        var inaccessible = calendars.size() - accessible;
-        log.info("Discovered {} calendar(s) at {} ({} accessible, {} inaccessible)",
-                calendars.size(), url, accessible, inaccessible);
-
-        return calendars;
+        return users;
     }
 
     /**
-     * Fetches events for the current week from a specific calendar.
+     * Fetches events for the current week from a specific user's default calendar.
      * <p>
-     * For accessible calendars, event details (name, time, status) are returned.
-     * For restricted calendars, the service still attempts to fetch events but
-     * the event names will be hidden (returned as {@code null} in
-     * {@link CalDavEvent#summary()}).
+     * Uses a smart fallback strategy: first attempts a {@code calendar-query}
+     * for full event details (name, time, status). If access is denied, falls
+     * back to a {@code free-busy-query} for busy time slots only.
      *
-     * @param baseUrl      the base CalDAV URL used for the original connection
-     * @param calendarHref the href of the calendar to fetch events from
-     * @param username     the username for authentication
-     * @param password     the password for authentication
-     * @param accessible   whether the calendar is accessible to the current user
+     * @param baseUrl  the base CalDAV URL used for the original connection
+     * @param userHref the href of the user's principal collection
+     * @param username the username for authentication
+     * @param password the password for authentication
      * @return a list of events for the current week, sorted by date and time
      * @throws CalDavException if validation fails or events cannot be fetched
      */
-    public List<CalDavEvent> fetchWeekEvents(String baseUrl, String calendarHref, String username, String password, boolean accessible) {
+    public List<CalDavEvent> fetchWeekEvents(String baseUrl, String userHref, String username, String password) {
         validateInputs(baseUrl, username, password);
 
-        log.info("Fetching week events from {} (accessible: {})", calendarHref, accessible);
-        var events = calDavClient.fetchWeekEvents(baseUrl, calendarHref, username, password, accessible);
+        log.info("Fetching week events for user at {}", userHref);
+        var events = calDavClient.fetchWeekEvents(baseUrl, userHref, username, password);
 
         // Sort by date, then by time (all-day events first)
         events.sort((a, b) -> {
@@ -109,7 +80,7 @@ public class CalDavService {
             return a.startTime().compareTo(b.startTime());
         });
 
-        log.info("Found {} event(s) for the current week in {}", events.size(), calendarHref);
+        log.info("Found {} event(s) for the current week for user at {}", events.size(), userHref);
         return events;
     }
 
