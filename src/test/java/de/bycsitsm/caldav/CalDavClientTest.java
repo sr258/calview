@@ -3,7 +3,6 @@ package de.bycsitsm.caldav;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CalDavClientTest {
 
@@ -75,6 +74,8 @@ class CalDavClientTest {
         assertThat(personal.description()).isEqualTo("My personal calendar");
         assertThat(personal.color()).isEqualTo("#0000FF"); // Alpha stripped
         assertThat(personal.ctag()).isEqualTo("ctag-12345");
+        assertThat(personal.accessible()).isTrue();
+        assertThat(personal.owner()).isNull();
 
         var work = calendars.get(1);
         assertThat(work.displayName()).isEqualTo("Work");
@@ -82,6 +83,8 @@ class CalDavClientTest {
         assertThat(work.description()).isEqualTo("Work calendar");
         assertThat(work.color()).isEqualTo("#FF0000"); // No alpha, stays as-is
         assertThat(work.ctag()).isEqualTo("ctag-67890");
+        assertThat(work.accessible()).isTrue();
+        assertThat(work.owner()).isNull();
     }
 
     @Test
@@ -229,6 +232,133 @@ class CalDavClientTest {
                 "/caldav.php/alice/",
                 "/caldav.php/bob/"
         );
+    }
+
+    @Test
+    void parsing_principal_search_response_extracts_principals() {
+        // Based on actual DAViCal principal-property-search response
+        var xml = """
+                <?xml version="1.0" encoding="utf-8"?>
+                <multistatus xmlns="DAV:">
+                  <response>
+                    <href>/caldav.php/admin/</href>
+                    <propstat>
+                      <prop>
+                        <displayname>DAViCal Administrator</displayname>
+                        <resourcetype>
+                          <collection/>
+                          <principal/>
+                        </resourcetype>
+                      </prop>
+                      <status>HTTP/1.1 200 OK</status>
+                    </propstat>
+                  </response>
+                  <response>
+                    <href>/caldav.php/di57zon/</href>
+                    <propstat>
+                      <prop>
+                        <displayname>Müller, Hans</displayname>
+                        <resourcetype>
+                          <collection/>
+                          <principal/>
+                        </resourcetype>
+                      </prop>
+                      <status>HTTP/1.1 200 OK</status>
+                    </propstat>
+                  </response>
+                  <response>
+                    <href>/caldav.php/ISB/</href>
+                    <propstat>
+                      <prop>
+                        <displayname>ISB</displayname>
+                        <resourcetype>
+                          <collection/>
+                          <principal/>
+                        </resourcetype>
+                      </prop>
+                      <status>HTTP/1.1 200 OK</status>
+                    </propstat>
+                  </response>
+                </multistatus>
+                """;
+
+        var principals = client.parsePrincipalSearchResponse(xml);
+
+        assertThat(principals).hasSize(3);
+
+        assertThat(principals.get(0).displayName()).isEqualTo("DAViCal Administrator");
+        assertThat(principals.get(0).href()).isEqualTo("/caldav.php/admin/");
+
+        assertThat(principals.get(1).displayName()).isEqualTo("Müller, Hans");
+        assertThat(principals.get(1).href()).isEqualTo("/caldav.php/di57zon/");
+
+        assertThat(principals.get(2).displayName()).isEqualTo("ISB");
+        assertThat(principals.get(2).href()).isEqualTo("/caldav.php/ISB/");
+    }
+
+    @Test
+    void parsing_principal_search_response_skips_non_principal_resources() {
+        var xml = """
+                <?xml version="1.0" encoding="utf-8"?>
+                <multistatus xmlns="DAV:">
+                  <response>
+                    <href>/caldav.php/some-collection/</href>
+                    <propstat>
+                      <prop>
+                        <displayname>Just a collection</displayname>
+                        <resourcetype>
+                          <collection/>
+                        </resourcetype>
+                      </prop>
+                      <status>HTTP/1.1 200 OK</status>
+                    </propstat>
+                  </response>
+                </multistatus>
+                """;
+
+        var principals = client.parsePrincipalSearchResponse(xml);
+
+        assertThat(principals).isEmpty();
+    }
+
+    @Test
+    void parsing_principal_search_response_uses_href_for_missing_displayname() {
+        var xml = """
+                <?xml version="1.0" encoding="utf-8"?>
+                <multistatus xmlns="DAV:">
+                  <response>
+                    <href>/caldav.php/unnamed/</href>
+                    <propstat>
+                      <prop>
+                        <displayname/>
+                        <resourcetype>
+                          <collection/>
+                          <principal/>
+                        </resourcetype>
+                      </prop>
+                      <status>HTTP/1.1 200 OK</status>
+                    </propstat>
+                  </response>
+                </multistatus>
+                """;
+
+        var principals = client.parsePrincipalSearchResponse(xml);
+
+        assertThat(principals).hasSize(1);
+        assertThat(principals.get(0).displayName()).isEqualTo("/caldav.php/unnamed/");
+    }
+
+    @Test
+    void parsing_empty_principal_search_response_returns_empty_list() {
+        var xml = """
+                <?xml version="1.0" encoding="utf-8"?>
+                <multistatus xmlns="DAV:">
+                </multistatus>
+                """;
+
+        var principals = client.parsePrincipalSearchResponse(xml);
+
+        assertThat(principals).isEmpty();
     }
 
     /**

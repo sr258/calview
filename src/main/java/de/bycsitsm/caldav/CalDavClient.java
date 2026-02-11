@@ -34,6 +34,11 @@ import java.util.List;
  * Supports PROPFIND requests for calendar discovery, including two-level
  * discovery where the given URL points to a server root containing principals
  * rather than calendars directly (e.g. DAViCal's {@code /caldav.php/}).
+ * <p>
+ * Also supports discovering all principals on the server via the
+ * {@code principal-property-search} REPORT method (RFC 3744), which allows
+ * listing calendars from users whose calendars are not shared with the
+ * current user.
  */
 @Component
 class CalDavClient {
@@ -75,6 +80,26 @@ class CalDavClient {
                 <cs:getctag/>
               </d:prop>
             </d:propfind>
+            """;
+
+    /**
+     * XML body for a REPORT request that discovers all principals on the server.
+     * Uses an empty match element to match all display names (wildcard).
+     */
+    private static final String PRINCIPAL_SEARCH_XML = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <d:principal-property-search xmlns:d="DAV:" test="anyof">
+              <d:property-search>
+                <d:prop>
+                  <d:displayname/>
+                </d:prop>
+                <d:match/>
+              </d:property-search>
+              <d:prop>
+                <d:displayname/>
+                <d:resourcetype/>
+              </d:prop>
+            </d:principal-property-search>
             """;
 
     /**
@@ -133,6 +158,171 @@ class CalDavClient {
         }
     }
 
+    /**
+     * Discovers all principals on the server and then queries each one for
+     * calendars, including principals whose calendars are not shared with the
+     * current user.
+     * <p>
+     * For principals that the current user cannot access (HTTP 403), a single
+     * placeholder calendar entry is created with {@code accessible=false},
+     * using the principal's display name.
+     * <p>
+     * For accessible principals, their calendars are returned with
+     * {@code accessible=true} and the principal's display name as the owner.
+     *
+     * @param url      the CalDAV URL (typically the server root, e.g. {@code /caldav.php/})
+     * @param username the username for authentication
+     * @param password the password for authentication
+     * @return a list of all calendars, including inaccessible ones
+     * @throws CalDavException if the principal search fails
+     */
+    List<CalDavCalendar> discoverAllCalendars(String url, String username, String password) {
+        try {
+            var normalizedUrl = normalizeUrl(url);
+            var principals = discoverPrincipals(normalizedUrl, username, password);
+
+            if (principals.isEmpty()) {
+                log.info("No principals found, falling back to standard calendar discovery");
+                return discoverCalendars(url, username, password);
+            }
+
+            log.info("Found {} principal(s), querying each for calendars", principals.size());
+            var allCalendars = new ArrayList<CalDavCalendar>();
+
+            for (var principal : principals) {
+                var principalUrl = resolveHref(normalizedUrl, principal.href());
+                try {
+                    var responseBody = sendPropfind(principalUrl, username, password);
+                    var parseResult = parseMultistatusResponse(responseBody, principalUrl);
+
+                    for (var calendar : parseResult.calendars) {
+                        allCalendars.add(new CalDavCalendar(
+                                calendar.displayName(),
+                                calendar.href(),
+                                calendar.description(),
+                                calendar.color(),
+                                calendar.ctag(),
+                                principal.displayName(),
+                                true
+                        ));
+                    }
+                } catch (CalDavException e) {
+                    if (e.getMessage() != null && e.getMessage().contains("Access denied")) {
+                        // Principal exists but calendars are not shared with us
+                        log.debug("No access to principal {}: {}", principal.displayName(), e.getMessage());
+                        allCalendars.add(new CalDavCalendar(
+                                principal.displayName(),
+                                principal.href(),
+                                null,
+                                null,
+                                null,
+                                principal.displayName(),
+                                false
+                        ));
+                    } else {
+                        log.warn("Failed to query principal {}: {}", principal.displayName(), e.getMessage());
+                    }
+                }
+            }
+
+            return allCalendars;
+        } catch (CalDavException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new CalDavException("Failed to discover all calendars: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Represents a principal (user) discovered on the server.
+     *
+     * @param displayName the display name of the principal
+     * @param href        the href/path of the principal's collection
+     */
+    record Principal(String displayName, String href) {
+    }
+
+    /**
+     * Discovers all principals on the CalDAV server using the
+     * {@code principal-property-search} REPORT method.
+     *
+     * @param normalizedUrl the base CalDAV URL
+     * @param username      the username for authentication
+     * @param password      the password for authentication
+     * @return a list of all discovered principals
+     */
+    List<Principal> discoverPrincipals(String normalizedUrl, String username, String password) {
+        try {
+            var responseBody = sendReport(normalizedUrl, username, password);
+            return parsePrincipalSearchResponse(responseBody);
+        } catch (CalDavException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new CalDavException("Failed to discover principals: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Parses a principal-property-search response into a list of principals.
+     */
+    List<Principal> parsePrincipalSearchResponse(String xml) {
+        var principals = new ArrayList<Principal>();
+        try {
+            var factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            var builder = factory.newDocumentBuilder();
+            var document = builder.parse(new InputSource(new StringReader(xml)));
+
+            var responses = document.getElementsByTagNameNS(DAV_NS, "response");
+            for (int i = 0; i < responses.getLength(); i++) {
+                var response = (Element) responses.item(i);
+                var href = getTextContent(response, DAV_NS, "href");
+                if (href == null) {
+                    continue;
+                }
+
+                if (!isSuccessResponse(response)) {
+                    continue;
+                }
+
+                // Only include actual principals (have <principal/> in resourcetype)
+                if (!isPrincipalResource(response)) {
+                    continue;
+                }
+
+                var displayName = getPropertyText(response, DAV_NS, "displayname");
+                if (displayName == null || displayName.isBlank()) {
+                    displayName = href;
+                }
+
+                principals.add(new Principal(displayName, href));
+            }
+        } catch (Exception e) {
+            throw new CalDavException("Failed to parse principal search response: " + e.getMessage(), e);
+        }
+        return principals;
+    }
+
+    private boolean isPrincipalResource(Element response) {
+        var propstats = response.getElementsByTagNameNS(DAV_NS, "propstat");
+        for (int i = 0; i < propstats.getLength(); i++) {
+            var propstat = (Element) propstats.item(i);
+            var props = propstat.getElementsByTagNameNS(DAV_NS, "prop");
+            for (int j = 0; j < props.getLength(); j++) {
+                var prop = (Element) props.item(j);
+                var resourceTypes = prop.getElementsByTagNameNS(DAV_NS, "resourcetype");
+                for (int k = 0; k < resourceTypes.getLength(); k++) {
+                    var resourceType = (Element) resourceTypes.item(k);
+                    var principalElements = resourceType.getElementsByTagNameNS(DAV_NS, "principal");
+                    if (principalElements.getLength() > 0) {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
     private String sendPropfind(String normalizedUrl, String username, String password)
             throws IOException, InterruptedException {
         var credentials = Base64.getEncoder().encodeToString(
@@ -165,6 +355,42 @@ class CalDavClient {
             case 401 -> throw new CalDavException("Authentication failed. Please check your username and password.");
             case 403 -> throw new CalDavException("Access denied. You don't have permission to access this calendar.");
             case 404 -> throw new CalDavException("Calendar URL not found. Please check the URL.");
+            default -> throw new CalDavException("Server returned unexpected status " + response.statusCode() + ".");
+        };
+    }
+
+    private String sendReport(String normalizedUrl, String username, String password)
+            throws IOException, InterruptedException {
+        var credentials = Base64.getEncoder().encodeToString(
+                (username + ":" + password).getBytes(StandardCharsets.UTF_8));
+
+        var clientBuilder = HttpClient.newBuilder()
+                .connectTimeout(CONNECT_TIMEOUT)
+                .followRedirects(HttpClient.Redirect.NORMAL);
+
+        if (trustAllCertificates) {
+            clientBuilder.sslContext(createTrustAllSslContext());
+        }
+
+        var httpClient = clientBuilder.build();
+
+        var request = HttpRequest.newBuilder()
+                .uri(URI.create(normalizedUrl))
+                .method("REPORT", HttpRequest.BodyPublishers.ofString(PRINCIPAL_SEARCH_XML))
+                .header("Content-Type", "application/xml; charset=utf-8")
+                .header("Depth", "0")
+                .header("Authorization", "Basic " + credentials)
+                .timeout(REQUEST_TIMEOUT)
+                .build();
+
+        log.debug("Sending REPORT principal-property-search to {}", normalizedUrl);
+        var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        return switch (response.statusCode()) {
+            case 207 -> response.body();
+            case 401 -> throw new CalDavException("Authentication failed. Please check your username and password.");
+            case 403 -> throw new CalDavException("Access denied. You don't have permission to search principals.");
+            case 404 -> throw new CalDavException("URL not found. Please check the URL.");
             default -> throw new CalDavException("Server returned unexpected status " + response.statusCode() + ".");
         };
     }
@@ -236,7 +462,7 @@ class CalDavClient {
             color = color.substring(0, 7);
         }
 
-        return new CalDavCalendar(displayName, href, description, color, ctag);
+        return new CalDavCalendar(displayName, href, description, color, ctag, null, true);
     }
 
     private boolean isCalendarResource(Element response) {

@@ -10,12 +10,16 @@ import org.jspecify.annotations.Nullable;
  * @param description an optional description of the calendar
  * @param color       an optional color (hex string like {@code #FF0000FF})
  * @param ctag        an optional CTag for change detection
+ * @param owner       the display name of the principal that owns this calendar
+ * @param accessible  whether the current user has read access to this calendar
  */
 public record CalDavCalendar(
         String displayName,
         String href,
         @Nullable String description,
         @Nullable String color,
-        @Nullable String ctag
+        @Nullable String ctag,
+        @Nullable String owner,
+        boolean accessible
 ) {
 }
