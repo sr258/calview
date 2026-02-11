@@ -3,10 +3,12 @@ package de.bycsitsm.caldav.ui;
 import com.vaadin.flow.component.button.Button;
 import com.vaadin.flow.component.button.ButtonVariant;
 import com.vaadin.flow.component.checkbox.Checkbox;
+import com.vaadin.flow.component.dialog.Dialog;
 import com.vaadin.flow.component.grid.Grid;
 import com.vaadin.flow.component.grid.GridVariant;
 import com.vaadin.flow.component.html.Div;
 import com.vaadin.flow.component.html.Span;
+import com.vaadin.flow.component.icon.Icon;
 import com.vaadin.flow.component.notification.Notification;
 import com.vaadin.flow.component.notification.NotificationVariant;
 import com.vaadin.flow.component.orderedlayout.VerticalLayout;
@@ -17,9 +19,11 @@ import com.vaadin.flow.router.PageTitle;
 import com.vaadin.flow.router.Route;
 import de.bycsitsm.base.ui.ViewToolbar;
 import de.bycsitsm.caldav.CalDavCalendar;
+import de.bycsitsm.caldav.CalDavEvent;
 import de.bycsitsm.caldav.CalDavException;
 import de.bycsitsm.caldav.CalDavService;
 
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 @Route("")
@@ -68,6 +72,9 @@ class CalDavView extends VerticalLayout {
         // Calendar grid
         calendarGrid = createCalendarGrid();
         add(calendarGrid);
+
+        // Click handler to show weekly appointments
+        calendarGrid.addItemClickListener(event -> showWeekEvents(event.getItem()));
     }
 
     private Grid<CalDavCalendar> createCalendarGrid() {
@@ -124,6 +131,126 @@ class CalDavView extends VerticalLayout {
     private Span createAccessBadge(CalDavCalendar calendar) {
         var badge = new Span(calendar.accessible() ? "Accessible" : "Restricted");
         badge.getElement().getThemeList().add("badge " + (calendar.accessible() ? "success" : "contrast") + " small");
+        return badge;
+    }
+
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("EEE, MMM d");
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
+
+    private void showWeekEvents(CalDavCalendar calendar) {
+        var url = urlField.getValue();
+        var username = usernameField.getValue();
+        var password = passwordField.getValue();
+
+        if (url.isBlank() || username.isBlank() || password.isBlank()) {
+            return;
+        }
+
+        try {
+            var events = calDavService.fetchWeekEvents(
+                    url, calendar.href(), username, password, calendar.accessible());
+
+            var dialog = new Dialog();
+            dialog.setHeaderTitle("This Week — " + calendar.displayName());
+            dialog.setWidth("700px");
+            dialog.setMaxHeight("80vh");
+            dialog.setDraggable(true);
+            dialog.setResizable(true);
+
+            // Close button in header
+            var closeButton = new Button(new Icon("lumo", "cross"), e -> dialog.close());
+            closeButton.addThemeVariants(ButtonVariant.LUMO_TERTIARY);
+            dialog.getHeader().add(closeButton);
+
+            if (events.isEmpty()) {
+                var emptyMessage = new Span("No appointments this week.");
+                emptyMessage.getStyle()
+                        .set("color", "var(--lumo-secondary-text-color)")
+                        .set("padding", "var(--lumo-space-m)");
+                dialog.add(emptyMessage);
+            } else {
+                var eventGrid = createEventGrid(calendar.accessible());
+                eventGrid.setItems(events);
+                dialog.add(eventGrid);
+            }
+
+            // Footer with event count
+            var countLabel = new Span(events.size() + " appointment(s)");
+            countLabel.getStyle().set("color", "var(--lumo-secondary-text-color)");
+            dialog.getFooter().add(countLabel);
+
+            dialog.open();
+        } catch (CalDavException e) {
+            Notification.show("Could not load appointments: " + e.getMessage(), 5000,
+                            Notification.Position.BOTTOM_CENTER)
+                    .addThemeVariants(NotificationVariant.LUMO_ERROR);
+        }
+    }
+
+    private Grid<CalDavEvent> createEventGrid(boolean accessible) {
+        var grid = new Grid<CalDavEvent>();
+        grid.addThemeVariants(GridVariant.LUMO_ROW_STRIPES, GridVariant.LUMO_COMPACT);
+        grid.setAllRowsVisible(true);
+
+        grid.addColumn(event -> event.date().format(DATE_FORMATTER))
+                .setHeader("Date")
+                .setAutoWidth(true)
+                .setFlexGrow(0);
+
+        grid.addColumn(event -> formatTimeRange(event))
+                .setHeader("Time")
+                .setAutoWidth(true)
+                .setFlexGrow(0);
+
+        if (accessible) {
+            grid.addColumn(event -> event.summary() != null ? event.summary() : "(No title)")
+                    .setHeader("Name")
+                    .setAutoWidth(true)
+                    .setFlexGrow(2);
+        } else {
+            grid.addComponentColumn(event -> {
+                        var span = new Span("(Restricted)");
+                        span.getStyle().set("color", "var(--lumo-secondary-text-color)")
+                                .set("font-style", "italic");
+                        return span;
+                    })
+                    .setHeader("Name")
+                    .setAutoWidth(true)
+                    .setFlexGrow(2);
+        }
+
+        grid.addComponentColumn(this::createStatusBadge)
+                .setHeader("Status")
+                .setAutoWidth(true)
+                .setFlexGrow(0);
+
+        return grid;
+    }
+
+    private String formatTimeRange(CalDavEvent event) {
+        if (event.startTime() == null) {
+            return "All day";
+        }
+        var start = event.startTime().format(TIME_FORMATTER);
+        if (event.endTime() != null) {
+            return start + " – " + event.endTime().format(TIME_FORMATTER);
+        }
+        return start;
+    }
+
+    private Span createStatusBadge(CalDavEvent event) {
+        var label = switch (event.status().toUpperCase()) {
+            case "PRIVATE" -> "Private";
+            case "CONFIDENTIAL" -> "Confidential";
+            default -> "Public";
+        };
+        var variant = switch (event.status().toUpperCase()) {
+            case "PRIVATE" -> "contrast";
+            case "CONFIDENTIAL" -> "warning";
+            default -> "success";
+        };
+        var badge = new Span(label);
+        badge.getElement().getThemeList().add("badge " + variant + " small");
         return badge;
     }
 

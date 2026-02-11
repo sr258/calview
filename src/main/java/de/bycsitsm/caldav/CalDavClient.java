@@ -22,10 +22,17 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
+import java.time.DayOfWeek;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * Low-level CalDAV protocol client that communicates with CalDAV servers
@@ -231,6 +238,260 @@ class CalDavClient {
         } catch (Exception e) {
             throw new CalDavException("Failed to discover all calendars: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Fetches events for the current week from the given calendar.
+     * <p>
+     * Uses a CalDAV REPORT {@code calendar-query} with a time-range filter
+     * to retrieve VEVENT components for the current week (Monday to Sunday).
+     * The response contains raw iCalendar data which is parsed into
+     * {@link CalDavEvent} records.
+     * <p>
+     * The {@code calendarHref} may be a relative path (e.g. {@code /caldav.php/user/calendar/})
+     * as returned by the server in PROPFIND responses. It is resolved against
+     * the {@code baseUrl} to produce the full URL.
+     *
+     * @param baseUrl      the base CalDAV URL used for the original connection
+     * @param calendarHref the href of the calendar (absolute URL or relative path)
+     * @param username     the username for authentication
+     * @param password     the password for authentication
+     * @param accessible   whether the calendar is accessible (affects event detail visibility)
+     * @return a list of events for the current week
+     * @throws CalDavException if the request fails or the response cannot be parsed
+     */
+    List<CalDavEvent> fetchWeekEvents(String baseUrl, String calendarHref, String username, String password, boolean accessible) {
+        try {
+            var normalizedBase = normalizeUrl(baseUrl);
+            var normalizedUrl = resolveHref(normalizedBase, calendarHref);
+            var today = LocalDate.now();
+            var weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
+            var weekEnd = weekStart.plusDays(7); // exclusive: Monday of next week
+
+            var startStr = weekStart.format(ICAL_DATE_FORMATTER) + "T000000Z";
+            var endStr = weekEnd.format(ICAL_DATE_FORMATTER) + "T000000Z";
+
+            var reportXml = CALENDAR_QUERY_XML_TEMPLATE
+                    .replace("{{START}}", startStr)
+                    .replace("{{END}}", endStr);
+
+            var responseBody = sendCalendarReport(normalizedUrl, username, password, reportXml);
+            return parseCalendarQueryResponse(responseBody, accessible);
+        } catch (CalDavException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new CalDavException("Failed to fetch events: " + e.getMessage(), e);
+        }
+    }
+
+    private static final DateTimeFormatter ICAL_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMdd");
+
+    /**
+     * XML template for a REPORT calendar-query that fetches VEVENT data
+     * within a time range. The placeholders {@code {{START}}} and {@code {{END}}}
+     * are replaced with iCalendar date-time strings.
+     */
+    private static final String CALENDAR_QUERY_XML_TEMPLATE = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <c:calendar-query xmlns:d="DAV:"
+                              xmlns:c="urn:ietf:params:xml:ns:caldav">
+              <d:prop>
+                <d:getetag/>
+                <c:calendar-data/>
+              </d:prop>
+              <c:filter>
+                <c:comp-filter name="VCALENDAR">
+                  <c:comp-filter name="VEVENT">
+                    <c:time-range start="{{START}}" end="{{END}}"/>
+                  </c:comp-filter>
+                </c:comp-filter>
+              </c:filter>
+            </c:calendar-query>
+            """;
+
+    private String sendCalendarReport(String normalizedUrl, String username, String password, String reportXml)
+            throws IOException, InterruptedException {
+        var credentials = Base64.getEncoder().encodeToString(
+                (username + ":" + password).getBytes(StandardCharsets.UTF_8));
+
+        var clientBuilder = HttpClient.newBuilder()
+                .connectTimeout(CONNECT_TIMEOUT)
+                .followRedirects(HttpClient.Redirect.NORMAL);
+
+        if (trustAllCertificates) {
+            clientBuilder.sslContext(createTrustAllSslContext());
+        }
+
+        var httpClient = clientBuilder.build();
+
+        var request = HttpRequest.newBuilder()
+                .uri(URI.create(normalizedUrl))
+                .method("REPORT", HttpRequest.BodyPublishers.ofString(reportXml))
+                .header("Content-Type", "application/xml; charset=utf-8")
+                .header("Depth", "1")
+                .header("Authorization", "Basic " + credentials)
+                .timeout(REQUEST_TIMEOUT)
+                .build();
+
+        log.debug("Sending REPORT calendar-query to {}", normalizedUrl);
+        var response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        return switch (response.statusCode()) {
+            case 207 -> response.body();
+            case 401 -> throw new CalDavException("Authentication failed. Please check your username and password.");
+            case 403 -> throw new CalDavException("Access denied. You don't have permission to access this calendar.");
+            case 404 -> throw new CalDavException("Calendar not found at this URL.");
+            default -> throw new CalDavException("Server returned unexpected status " + response.statusCode() + ".");
+        };
+    }
+
+    /**
+     * Parses a calendar-query REPORT response (multistatus with calendar-data)
+     * into a list of {@link CalDavEvent} records.
+     */
+    List<CalDavEvent> parseCalendarQueryResponse(String xml, boolean accessible) {
+        var events = new ArrayList<CalDavEvent>();
+        try {
+            var factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            var builder = factory.newDocumentBuilder();
+            var document = builder.parse(new InputSource(new StringReader(xml)));
+
+            var responses = document.getElementsByTagNameNS(DAV_NS, "response");
+            for (int i = 0; i < responses.getLength(); i++) {
+                var response = (Element) responses.item(i);
+
+                if (!isSuccessResponse(response)) {
+                    continue;
+                }
+
+                var calendarData = getPropertyText(response, CALDAV_NS, "calendar-data");
+                if (calendarData == null || calendarData.isBlank()) {
+                    continue;
+                }
+
+                events.addAll(parseICalendarData(calendarData, accessible));
+            }
+        } catch (CalDavException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new CalDavException("Failed to parse calendar query response: " + e.getMessage(), e);
+        }
+        return events;
+    }
+
+    // iCalendar property patterns
+    private static final Pattern SUMMARY_PATTERN = Pattern.compile("(?m)^SUMMARY[;:](.*)$");
+    private static final Pattern DTSTART_PATTERN = Pattern.compile("(?m)^DTSTART[;:](.*)$");
+    private static final Pattern DTEND_PATTERN = Pattern.compile("(?m)^DTEND[;:](.*)$");
+    private static final Pattern CLASS_PATTERN = Pattern.compile("(?m)^CLASS[;:](.*)$");
+
+    /**
+     * Parses raw iCalendar text data into {@link CalDavEvent} records.
+     * Handles VEVENT blocks, extracts SUMMARY, DTSTART, DTEND, and CLASS properties.
+     */
+    List<CalDavEvent> parseICalendarData(String icalData, boolean accessible) {
+        var events = new ArrayList<CalDavEvent>();
+
+        // Unfold lines: iCal spec says lines can be folded with CRLF + whitespace
+        var unfolded = icalData.replaceAll("\\r?\\n[ \\t]", "");
+
+        // Split into VEVENT blocks
+        var veventStart = 0;
+        while ((veventStart = unfolded.indexOf("BEGIN:VEVENT", veventStart)) != -1) {
+            var veventEnd = unfolded.indexOf("END:VEVENT", veventStart);
+            if (veventEnd == -1) {
+                break;
+            }
+
+            var veventBlock = unfolded.substring(veventStart, veventEnd);
+
+            var summary = extractICalProperty(veventBlock, SUMMARY_PATTERN);
+            var dtstart = extractICalProperty(veventBlock, DTSTART_PATTERN);
+            var dtend = extractICalProperty(veventBlock, DTEND_PATTERN);
+            var classValue = extractICalProperty(veventBlock, CLASS_PATTERN);
+
+            if (dtstart == null) {
+                veventStart = veventEnd + 1;
+                continue;
+            }
+
+            var date = parseICalDate(dtstart);
+            var startTime = parseICalTime(dtstart);
+            var endTime = dtend != null ? parseICalTime(dtend) : null;
+            var status = classValue != null ? classValue.strip() : "PUBLIC";
+
+            if (date == null) {
+                veventStart = veventEnd + 1;
+                continue;
+            }
+
+            if (accessible) {
+                events.add(new CalDavEvent(
+                        summary != null ? summary.strip() : "(No title)",
+                        date, startTime, endTime, status, true));
+            } else {
+                // For restricted calendars, hide the name
+                events.add(new CalDavEvent(null, date, startTime, endTime, status, false));
+            }
+
+            veventStart = veventEnd + 1;
+        }
+
+        return events;
+    }
+
+    private @Nullable String extractICalProperty(String block, Pattern pattern) {
+        var matcher = pattern.matcher(block);
+        if (matcher.find()) {
+            var value = matcher.group(1);
+            // Handle property parameters like DTSTART;VALUE=DATE:20250210
+            var colonIdx = value.indexOf(':');
+            if (colonIdx >= 0 && value.contains("=")) {
+                // Has parameters before the colon
+                return value.substring(colonIdx + 1).strip();
+            }
+            return value.strip();
+        }
+        return null;
+    }
+
+    /**
+     * Parses an iCalendar date/datetime string into a {@link LocalDate}.
+     * Supports formats: {@code 20250210}, {@code 20250210T140000}, {@code 20250210T140000Z}.
+     */
+    private @Nullable LocalDate parseICalDate(String dtValue) {
+        try {
+            // Strip timezone suffix
+            var clean = dtValue.replace("Z", "").strip();
+            if (clean.length() >= 8) {
+                return LocalDate.parse(clean.substring(0, 8), ICAL_DATE_FORMATTER);
+            }
+        } catch (DateTimeParseException e) {
+            log.warn("Failed to parse iCal date: {}", dtValue);
+        }
+        return null;
+    }
+
+    /**
+     * Parses an iCalendar datetime string into a {@link LocalTime}.
+     * Returns {@code null} for date-only values (all-day events).
+     * Supports formats: {@code 20250210T140000}, {@code 20250210T140000Z}.
+     */
+    private @Nullable LocalTime parseICalTime(String dtValue) {
+        try {
+            var clean = dtValue.replace("Z", "").strip();
+            if (clean.contains("T") && clean.length() >= 15) {
+                var timeStr = clean.substring(9); // HHmmss
+                return LocalTime.of(
+                        Integer.parseInt(timeStr.substring(0, 2)),
+                        Integer.parseInt(timeStr.substring(2, 4)),
+                        Integer.parseInt(timeStr.substring(4, 6)));
+            }
+        } catch (NumberFormatException | StringIndexOutOfBoundsException e) {
+            log.warn("Failed to parse iCal time: {}", dtValue);
+        }
+        return null;
     }
 
     /**

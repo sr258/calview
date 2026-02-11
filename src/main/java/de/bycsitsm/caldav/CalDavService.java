@@ -69,6 +69,50 @@ public class CalDavService {
         return calendars;
     }
 
+    /**
+     * Fetches events for the current week from a specific calendar.
+     * <p>
+     * For accessible calendars, event details (name, time, status) are returned.
+     * For restricted calendars, the service still attempts to fetch events but
+     * the event names will be hidden (returned as {@code null} in
+     * {@link CalDavEvent#summary()}).
+     *
+     * @param baseUrl      the base CalDAV URL used for the original connection
+     * @param calendarHref the href of the calendar to fetch events from
+     * @param username     the username for authentication
+     * @param password     the password for authentication
+     * @param accessible   whether the calendar is accessible to the current user
+     * @return a list of events for the current week, sorted by date and time
+     * @throws CalDavException if validation fails or events cannot be fetched
+     */
+    public List<CalDavEvent> fetchWeekEvents(String baseUrl, String calendarHref, String username, String password, boolean accessible) {
+        validateInputs(baseUrl, username, password);
+
+        log.info("Fetching week events from {} (accessible: {})", calendarHref, accessible);
+        var events = calDavClient.fetchWeekEvents(baseUrl, calendarHref, username, password, accessible);
+
+        // Sort by date, then by time (all-day events first)
+        events.sort((a, b) -> {
+            var dateCompare = a.date().compareTo(b.date());
+            if (dateCompare != 0) {
+                return dateCompare;
+            }
+            if (a.startTime() == null && b.startTime() == null) {
+                return 0;
+            }
+            if (a.startTime() == null) {
+                return -1;
+            }
+            if (b.startTime() == null) {
+                return 1;
+            }
+            return a.startTime().compareTo(b.startTime());
+        });
+
+        log.info("Found {} event(s) for the current week in {}", events.size(), calendarHref);
+        return events;
+    }
+
     private void validateInputs(String url, String username, String password) {
         if (url == null || url.isBlank()) {
             throw new CalDavException("CalDAV URL must not be empty.");
