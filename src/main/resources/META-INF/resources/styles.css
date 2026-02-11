@@ -1,1 +1,115 @@
-/* Add your styles here */
+/* ============================================================
+   Schedule Grid Styles
+   ============================================================ */
+
+/* --- Schedule cell base --- */
+.schedule-cell {
+    width: 100%;
+    height: 100%;
+    min-height: 28px;
+    min-width: 36px;
+    border-radius: var(--lumo-border-radius-s);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--lumo-font-size-xxs);
+    cursor: default;
+    box-sizing: border-box;
+}
+
+/* --- Slot status colors --- */
+
+/* Busy: accessible calendar with full details (blue) */
+.slot-busy {
+    background-color: var(--lumo-primary-color-10pct);
+    border-left: 3px solid var(--lumo-primary-color);
+    color: var(--lumo-primary-text-color);
+}
+
+/* Busy: free-busy only, no details available (orange) */
+.slot-busy-fb {
+    background-color: color-mix(in srgb, var(--lumo-warning-color) 15%, transparent);
+    border-left: 3px solid var(--lumo-warning-color);
+    color: var(--lumo-warning-text-color);
+}
+
+/* Busy-Tentative (yellow, lighter) */
+.slot-busy-tentative {
+    background-color: color-mix(in srgb, var(--lumo-warning-color) 8%, transparent);
+    border-left: 3px solid color-mix(in srgb, var(--lumo-warning-color) 60%, transparent);
+    color: var(--lumo-warning-text-color);
+}
+
+/* Busy-Unavailable (red) */
+.slot-busy-unavailable {
+    background-color: var(--lumo-error-color-10pct);
+    border-left: 3px solid var(--lumo-error-color);
+    color: var(--lumo-error-text-color);
+}
+
+/* "All Free" row: everyone is free (green) */
+.slot-all-free {
+    background-color: var(--lumo-success-color-10pct);
+}
+
+/* "All Free" row: at least one person busy (subtle gray) */
+.slot-not-all-free {
+    background-color: var(--lumo-contrast-5pct);
+}
+
+/* --- Schedule grid layout adjustments --- */
+
+/* Make schedule grid cells compact */
+.schedule-grid vaadin-grid-cell-content {
+    padding: 2px 3px;
+}
+
+/* User name column in schedule grid */
+.schedule-user-cell {
+    display: flex;
+    align-items: center;
+    gap: var(--lumo-space-xs);
+    white-space: nowrap;
+}
+
+.schedule-user-cell .user-name {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* "All Free" summary row styling */
+.schedule-summary-cell {
+    font-weight: 600;
+    font-size: var(--lumo-font-size-s);
+}
+
+/* Day separator: thicker left border on the first slot of each day (via part name) */
+.schedule-grid::part(day-separator) {
+    border-left: 2px solid var(--lumo-contrast-20pct);
+}
+
+/* Week navigation bar */
+.week-nav {
+    display: flex;
+    align-items: center;
+    gap: var(--lumo-space-s);
+    padding: var(--lumo-space-xs) var(--lumo-space-m);
+    background-color: var(--lumo-contrast-5pct);
+    border-bottom: 1px solid var(--lumo-contrast-10pct);
+}
+
+.week-nav .week-label {
+    font-weight: 600;
+    font-size: var(--lumo-font-size-m);
+    min-width: 250px;
+    text-align: center;
+}
+
+/* Error indicator for failed user fetch */
+.schedule-error-cell {
+    background-color: var(--lumo-error-color-10pct);
+    color: var(--lumo-error-text-color);
+    font-size: var(--lumo-font-size-xxs);
+    text-align: center;
+}

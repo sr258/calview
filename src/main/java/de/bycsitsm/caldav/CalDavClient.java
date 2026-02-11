@@ -22,13 +22,11 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.security.cert.X509Certificate;
-import java.time.DayOfWeek;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
-import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -197,7 +195,7 @@ class CalDavClient {
     }
 
     /**
-     * Fetches events for the current week from the given user's default calendar.
+     * Fetches events for the specified week from the given user's default calendar.
      * <p>
      * Uses a smart fallback strategy: first attempts a CalDAV REPORT
      * {@code calendar-query} to retrieve full event details (summary, time,
@@ -209,14 +207,16 @@ class CalDavClient {
      * {@link #discoverUsers}. The default calendar collection path is
      * derived by appending {@code "calendar/"} to the user's href.
      *
-     * @param baseUrl  the base CalDAV URL used for the original connection
-     * @param userHref the href of the user's principal collection
-     * @param username the username for authentication
-     * @param password the password for authentication
-     * @return a list of events for the current week
+     * @param baseUrl   the base CalDAV URL used for the original connection
+     * @param userHref  the href of the user's principal collection
+     * @param username  the username for authentication
+     * @param password  the password for authentication
+     * @param weekStart the Monday of the week to fetch events for
+     * @return a list of events for the specified week
      * @throws CalDavException if the request fails or the response cannot be parsed
      */
-    List<CalDavEvent> fetchWeekEvents(String baseUrl, String userHref, String username, String password) {
+    List<CalDavEvent> fetchWeekEvents(String baseUrl, String userHref, String username, String password,
+                                      LocalDate weekStart) {
         try {
             var normalizedBase = normalizeUrl(baseUrl);
             var calendarHref = userHref.endsWith("/")
@@ -224,8 +224,6 @@ class CalDavClient {
                     : userHref + "/calendar/";
             var calendarUrl = resolveHref(normalizedBase, calendarHref);
 
-            var today = LocalDate.now();
-            var weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY));
             var weekEnd = weekStart.plusDays(7); // exclusive: Monday of next week
 
             var startStr = weekStart.format(ICAL_DATE_FORMATTER) + "T000000Z";

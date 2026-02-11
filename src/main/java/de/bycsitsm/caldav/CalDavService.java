@@ -4,6 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -71,24 +72,26 @@ public class CalDavService {
     }
 
     /**
-     * Fetches events for the current week from a specific user's default calendar.
+     * Fetches events for the specified week from a specific user's default calendar.
      * <p>
      * Uses a smart fallback strategy: first attempts a {@code calendar-query}
      * for full event details (name, time, status). If access is denied, falls
      * back to a {@code free-busy-query} for busy time slots only.
      *
-     * @param baseUrl  the base CalDAV URL used for the original connection
-     * @param userHref the href of the user's principal collection
-     * @param username the username for authentication
-     * @param password the password for authentication
-     * @return a list of events for the current week, sorted by date and time
+     * @param baseUrl   the base CalDAV URL used for the original connection
+     * @param userHref  the href of the user's principal collection
+     * @param username  the username for authentication
+     * @param password  the password for authentication
+     * @param weekStart the Monday of the week to fetch events for
+     * @return a list of events for the specified week, sorted by date and time
      * @throws CalDavException if validation fails or events cannot be fetched
      */
-    public List<CalDavEvent> fetchWeekEvents(String baseUrl, String userHref, String username, String password) {
+    public List<CalDavEvent> fetchWeekEvents(String baseUrl, String userHref, String username, String password,
+                                             LocalDate weekStart) {
         validateInputs(baseUrl, username, password);
 
-        log.info("Fetching week events for user at {}", userHref);
-        var events = calDavClient.fetchWeekEvents(baseUrl, userHref, username, password);
+        log.info("Fetching week events for user at {} (week of {})", userHref, weekStart);
+        var events = calDavClient.fetchWeekEvents(baseUrl, userHref, username, password, weekStart);
 
         // Sort by date, then by time (all-day events first)
         events.sort((a, b) -> {
