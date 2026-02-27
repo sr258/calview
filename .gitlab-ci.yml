@@ -31,10 +31,10 @@ build-windows:
     # Install frontend dependencies
     - npm ci
   script:
-    - npx tauri build --target x86_64-pc-windows-msvc --bundles nsis
+    - npx tauri build --target x86_64-pc-windows-msvc --bundles none
   artifacts:
     paths:
-      - src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+      - src-tauri/target/x86_64-pc-windows-msvc/release/*.exe
     expire_in: 30 days
   cache:
     key: rust-cargo-cache
