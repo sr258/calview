@@ -1,14 +1,22 @@
-/target/
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+
+# IDE
 .idea/
 .vscode/
-.settings
-.project
-.classpath
-
 *.iml
-.DS_Store
 
-# The following files are generated/updated by vaadin-maven-plugin
-node_modules/
-src/main/frontend/generated/
-vite.generated.ts
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
