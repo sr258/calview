@@ -20,7 +20,7 @@ CalView is a CalDAV calendar viewer / appointment planner, packaged as a Tauri v
 | Desktop Packaging | Tauri v2 |
 | Testing | Vitest with jsdom |
 | Package Manager | npm |
-| CI | GitLab CI, Linux runner, cross-compile Windows .exe via cargo-xwin |
+| CI | GitHub Actions, Windows runner, NSIS installer + portable exe |
 
 ## Development Commands
 
@@ -57,7 +57,7 @@ calview/
 ├── package.json                  # npm config, scripts, dependencies
 ├── tsconfig.json                 # TypeScript strict config (JSX for Preact)
 ├── vite.config.ts                # Preact preset, dev proxy, test config
-├── .gitlab-ci.yml                # CI: test + cross-compile Windows build
+├── .github/workflows/ci.yml      # CI: test (Ubuntu) + Windows build (NSIS installer + portable)
 ├── src/
 │   ├── main.tsx                  # Entry point: renders <App /> into #app
 │   ├── app.tsx                   # Root component: assembles all UI pieces

@@ -21,6 +21,13 @@
       "csp": null
     }
   },
+  "bundle": {
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  },
   "plugins": {
     "http": {
       "scope": {
