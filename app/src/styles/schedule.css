@@ -1,0 +1,213 @@
+/* ============================================================
+   CalView — Schedule Grid Styles
+   Ported from: src/main/resources/META-INF/resources/styles.css
+   Vaadin-specific selectors replaced with plain HTML <table> selectors.
+   All .slot-* classes retained unchanged.
+   ============================================================ */
+
+/* ─── Schedule Scroll Container ─────────────────────────────────────────── */
+
+.schedule-scroll-container {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+}
+
+/* ─── Schedule Table ────────────────────────────────────────────────────── */
+
+.schedule-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-size: var(--cv-font-xxs);
+}
+
+/* ─── Header Cells ──────────────────────────────────────────────────────── */
+
+.schedule-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* Corner cell (User column header) */
+.schedule-corner-cell {
+  position: sticky;
+  left: 0;
+  z-index: 20;
+  background-color: var(--cv-surface);
+  min-width: 160px;
+  width: 160px;
+  padding: var(--cv-space-xs) var(--cv-space-s);
+  text-align: left;
+  font-weight: 600;
+  font-size: var(--cv-font-s);
+  border-bottom: 1px solid var(--cv-contrast-20);
+  border-right: 2px solid var(--cv-contrast-20);
+}
+
+/* Day header row: e.g. "Mon Feb 10" */
+.schedule-day-header {
+  background-color: var(--cv-surface);
+  padding: var(--cv-space-xs) var(--cv-space-s);
+  font-weight: 600;
+  font-size: var(--cv-font-s);
+  text-align: center;
+  border-bottom: 1px solid var(--cv-contrast-10);
+  white-space: nowrap;
+}
+
+/* Time header row: e.g. "7:00", "8:00" */
+.schedule-time-header {
+  background-color: var(--cv-surface);
+  padding: 2px 1px;
+  font-weight: 400;
+  font-size: var(--cv-font-xxs);
+  color: var(--cv-text-secondary);
+  text-align: center;
+  border-bottom: 2px solid var(--cv-contrast-20);
+  min-width: 40px;
+  width: 40px;
+  white-space: nowrap;
+}
+
+/* Day separator: thicker left border on first slot of each day (except first) */
+.day-separator {
+  border-left: 2px solid var(--cv-contrast-20);
+}
+
+/* ─── Body Rows ─────────────────────────────────────────────────────────── */
+
+.schedule-user-row {
+  border-bottom: 1px solid var(--cv-contrast-10);
+}
+
+.schedule-summary-row {
+  border-top: 2px solid var(--cv-contrast-20);
+}
+
+/* ─── User Name Cell (Frozen First Column) ──────────────────────────────── */
+
+.schedule-user-cell-td {
+  position: sticky;
+  left: 0;
+  z-index: 5;
+  background-color: var(--cv-surface);
+  min-width: 160px;
+  width: 160px;
+  padding: 2px var(--cv-space-s);
+  border-right: 2px solid var(--cv-contrast-20);
+  border-bottom: 1px solid var(--cv-contrast-10);
+}
+
+.schedule-user-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--cv-space-xs);
+  white-space: nowrap;
+}
+
+.schedule-user-cell .user-name {
+  font-weight: 500;
+  font-size: var(--cv-font-s);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-warning-icon {
+  flex-shrink: 0;
+  color: var(--cv-error-text);
+}
+
+.btn-remove-user {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--cv-text-secondary);
+  font-size: var(--cv-font-m);
+  padding: 0 2px;
+  line-height: 1;
+  opacity: 0.5;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.btn-remove-user:hover {
+  opacity: 1;
+  color: var(--cv-error-text);
+}
+
+/* "All Free" summary row user cell */
+.schedule-summary-cell {
+  font-weight: 600;
+  font-size: var(--cv-font-s);
+}
+
+/* ─── Schedule Cell (Slot) Base ─────────────────────────────────────────── */
+
+.schedule-cell {
+  min-width: 40px;
+  width: 40px;
+  height: 28px;
+  min-height: 28px;
+  padding: 1px 2px;
+  text-align: center;
+  vertical-align: middle;
+  font-size: var(--cv-font-xxs);
+  cursor: default;
+  border-bottom: 1px solid var(--cv-contrast-10);
+  border-right: 1px solid var(--cv-contrast-5);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── Slot Status Colors ────────────────────────────────────────────────── */
+/* Direct port from old styles.css — only CSS variables changed */
+
+/* Busy: accessible calendar with full details (blue) */
+.slot-busy {
+  background-color: var(--cv-primary-10);
+  border-left: 3px solid var(--cv-primary);
+  color: var(--cv-primary-text);
+}
+
+/* Busy: free-busy only, no details available (orange) */
+.slot-busy-fb {
+  background-color: color-mix(in srgb, var(--cv-warning) 15%, transparent);
+  border-left: 3px solid var(--cv-warning);
+  color: var(--cv-warning-text);
+}
+
+/* Busy-Tentative (yellow, lighter) */
+.slot-busy-tentative {
+  background-color: color-mix(in srgb, var(--cv-warning) 8%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--cv-warning) 60%, transparent);
+  color: var(--cv-warning-text);
+}
+
+/* Busy-Unavailable (red) */
+.slot-busy-unavailable {
+  background-color: var(--cv-error-10);
+  border-left: 3px solid var(--cv-error);
+  color: var(--cv-error-text);
+}
+
+/* "All Free" row: everyone is free (green) */
+.slot-all-free {
+  background-color: var(--cv-success-10);
+}
+
+/* "All Free" row: at least one person busy (subtle gray) */
+.slot-not-all-free {
+  background-color: var(--cv-contrast-5);
+}
+
+/* ─── Error Indicator ───────────────────────────────────────────────────── */
+
+.schedule-error-cell {
+  background-color: var(--cv-error-10);
+  color: var(--cv-error-text);
+  font-size: var(--cv-font-xxs);
+  text-align: center;
+}
