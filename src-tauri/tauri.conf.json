@@ -28,15 +28,5 @@
       }
     }
   },
-  "plugins": {
-    "http": {
-      "scope": {
-        "allow": [
-          {
-            "url": "https://*"
-          }
-        ]
-      }
-    }
-  }
+  "plugins": {  }
 }
