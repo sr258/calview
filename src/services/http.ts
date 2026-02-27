@@ -9,6 +9,18 @@
 const REQUEST_TIMEOUT_MS = 30_000;
 
 /**
+ * Whether to accept invalid TLS certificates (e.g. self-signed or
+ * incomplete chains). Only takes effect in Tauri mode; the Vite dev
+ * proxy already sets `secure: false`.
+ */
+let _acceptInvalidCerts = false;
+
+/** Enable or disable acceptance of invalid TLS certificates. */
+export function setAcceptInvalidCerts(value: boolean): void {
+  _acceptInvalidCerts = value;
+}
+
+/**
  * Options for an HTTP request.
  */
 export interface HttpRequestOptions {
@@ -95,6 +107,9 @@ async function tauriFetch(options: HttpRequestOptions): Promise<HttpResponse> {
     headers: options.headers,
     body: options.body,
     connectTimeout: REQUEST_TIMEOUT_MS,
+    ...(_acceptInvalidCerts
+      ? { danger: { acceptInvalidCerts: true } }
+      : {}),
   });
 
   const body = await response.text();

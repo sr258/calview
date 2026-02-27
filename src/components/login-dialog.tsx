@@ -18,6 +18,7 @@ import {
   connected,
   connection,
   connect,
+  acceptInvalidCerts,
 } from "../state/app-state.js";
 
 /**
@@ -139,6 +140,26 @@ export function LoginDialog({ onNotification }: LoginDialogProps) {
               placeholder="Password"
               disabled={connecting}
             />
+          </div>
+
+          <div class="form-field form-field-checkbox">
+            <label for="login-accept-invalid-certs">
+              <input
+                id="login-accept-invalid-certs"
+                type="checkbox"
+                checked={acceptInvalidCerts.value}
+                onChange={(e) => {
+                  acceptInvalidCerts.value =
+                    (e.target as HTMLInputElement).checked;
+                }}
+                disabled={connecting}
+              />
+              Accept invalid TLS certificates
+            </label>
+            <span class="form-hint">
+              Enable if the server uses a self-signed or incomplete certificate
+              chain.
+            </span>
           </div>
         </div>
 
