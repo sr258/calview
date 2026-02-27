@@ -1,0 +1,36 @@
+{
+  "$schema": "https://raw.githubusercontent.com/tauri-apps/tauri/dev/crates/tauri-cli/config.schema.json",
+  "productName": "CalView",
+  "version": "1.0.0",
+  "identifier": "de.bycsitsm.calview",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "title": "CalView",
+    "windows": [
+      {
+        "title": "CalView - Appointment Planner",
+        "width": 1200,
+        "height": 800
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "plugins": {
+    "http": {
+      "scope": {
+        "allow": [
+          {
+            "url": "https://*"
+          }
+        ]
+      }
+    }
+  }
+}
