@@ -108,7 +108,7 @@ async function tauriFetch(options: HttpRequestOptions): Promise<HttpResponse> {
     body: options.body,
     connectTimeout: REQUEST_TIMEOUT_MS,
     ...(_acceptInvalidCerts
-      ? { danger: { acceptInvalidCerts: true } }
+      ? { danger: { acceptInvalidCerts: true, acceptInvalidHostnames: true } }
       : {}),
   });
 
