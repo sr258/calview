@@ -8,22 +8,24 @@
  * Structure:
  * <table>
  *   <thead>
- *     <tr>  -- Day header row: <th colspan="24">Mon Feb 10</th> x 5 days
- *     <tr>  -- Time header row: <th>7:00</th><th></th><th>8:00</th>... per day
+ *     <tr>  -- Day header row: <th colspan="144">Mon Feb 10</th> x 5 days
+ *     <tr>  -- Time header row: <th>7:00</th><th></th>...<th>8:00</th>... per day
  *   </thead>
  *   <tbody>
- *     <tr>  -- One per user: <td>Name [X]</td> + 120 slot <td>s
+ *     <tr>  -- One per user: <td>Name [X]</td> + merged slot <td>s (colSpan for events)
  *     <tr>  -- "All Free" summary row
  *   </tbody>
  * </table>
  *
  * Features:
+ * - 5-minute time resolution (144 slots per day, 720 total)
+ * - Adjacent slots for the same event are merged via colSpan
  * - First column is frozen (CSS position: sticky; left: 0)
  * - Each slot <td> has CSS class from SlotInfo.cssClass and title from tooltip
  * - User name cell: name + remove button (X), warning icon if user failed
  * - "All Free" row: user === null, bold label
  * - Table wrapped in a horizontally scrollable container
- * - 120 slot columns at 40px each = 4800px wide + user column
+ * - 720 slot columns at 5px each = 3600px wide + user column
  */
 
 import type { ScheduleRow } from "../model/types.js";
@@ -38,6 +40,7 @@ import {
   generateTimeSlots,
   formatDayHeader,
   formatTimeForDisplay,
+  computeMergedCells,
   WEEKDAY_COUNT,
 } from "../model/schedule.js";
 
@@ -106,10 +109,12 @@ function ScheduleHead({ weekStart, timeSlots }: ScheduleHeadProps) {
           timeSlots.map((time, slotIdx) => {
             const isFullHour = time.endsWith(":00");
             const isFirstSlotOfDay = slotIdx === 0;
+            const isLastSlotOfDay = slotIdx === timeSlots.length - 1;
+            const nextIsFullHour = !isLastSlotOfDay && timeSlots[slotIdx + 1].endsWith(":00");
             return (
               <th
                 key={`${dayIdx}-${time}`}
-                class={`schedule-time-header${isFirstSlotOfDay && dayIdx > 0 ? " day-separator" : ""}`}
+                class={`schedule-time-header${isFirstSlotOfDay && dayIdx > 0 ? " day-separator" : ""}${nextIsFullHour || isLastSlotOfDay ? " hour-separator" : ""}`}
               >
                 {isFullHour ? formatTimeForDisplay(time) : ""}
               </th>
@@ -161,6 +166,7 @@ function ScheduleRowComponent({
   isLastRow,
 }: ScheduleRowProps) {
   const isSummaryRow = row.user === null;
+  const mergedCells = computeMergedCells(row.slots, timeSlots);
 
   return (
     <tr class={isSummaryRow ? "schedule-summary-row" : "schedule-user-row"}>
@@ -196,24 +202,17 @@ function ScheduleRowComponent({
         )}
       </td>
 
-      {/* Slot cells */}
-      {Array.from({ length: WEEKDAY_COUNT }, (_, dayIdx) =>
-        timeSlots.map((time, slotIdx) => {
-          const key = `${dayIdx}-${time}`;
-          const slot = row.slots[key];
-          const isFirstSlotOfDay = slotIdx === 0;
-
-          return (
-            <td
-              key={key}
-              class={`schedule-cell${slot?.cssClass ? ` ${slot.cssClass}` : ""}${isFirstSlotOfDay && dayIdx > 0 ? " day-separator" : ""}`}
-              title={slot?.tooltip ?? undefined}
-            >
-              {slot?.label ?? ""}
-            </td>
-          );
-        })
-      )}
+      {/* Slot cells (merged) */}
+      {mergedCells.map((cell) => (
+        <td
+          key={cell.key}
+          colSpan={cell.colSpan > 1 ? cell.colSpan : undefined}
+          class={`schedule-cell${cell.slot.cssClass ? ` ${cell.slot.cssClass}` : ""}${cell.isFirstSlotOfDay && cell.dayIdx > 0 ? " day-separator" : ""}${cell.endsAtFullHour ? " hour-separator" : ""}`}
+          title={cell.slot.tooltip ?? undefined}
+        >
+          {cell.slot.label ?? ""}
+        </td>
+      ))}
     </tr>
   );
 }

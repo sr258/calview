@@ -8,8 +8,10 @@
  * - Event priority & selection
  * - CSS class mapping
  * - Slot labels
+ * - Event key generation
  * - Tooltips
  * - Full slot computation
+ * - Cell merging (colSpan)
  * - "All Free" computation
  * - Date/time helpers
  */
@@ -30,8 +32,10 @@ import {
   selectPrimaryEvent,
   getCssClassForEvent,
   getSlotLabel,
+  getEventKey,
   buildTooltip,
   computeUserSlots,
+  computeMergedCells,
   computeAllFreeSlots,
   buildScheduleRows,
   addDays,
@@ -66,7 +70,7 @@ describe("constants", () => {
   it("has correct schedule boundaries", () => {
     expect(SCHEDULE_START).toBe("07:00");
     expect(SCHEDULE_END).toBe("19:00");
-    expect(SLOT_MINUTES).toBe(30);
+    expect(SLOT_MINUTES).toBe(5);
     expect(WEEKDAY_COUNT).toBe(5);
   });
 
@@ -78,24 +82,24 @@ describe("constants", () => {
 // ─── Time Slot Generation ────────────────────────────────────────────────────
 
 describe("generateTimeSlots", () => {
-  it("generates correct time slots from 07:00 to 18:30", () => {
+  it("generates correct time slots from 07:00 to 18:55", () => {
     const slots = generateTimeSlots();
 
     expect(slots[0]).toBe("07:00");
-    expect(slots[1]).toBe("07:30");
-    expect(slots[slots.length - 1]).toBe("18:30");
+    expect(slots[1]).toBe("07:05");
+    expect(slots[slots.length - 1]).toBe("18:55");
 
-    // 07:00 to 19:00 = 12 hours = 24 half-hour slots
-    expect(slots).toHaveLength(24);
+    // 07:00 to 19:00 = 12 hours = 720 minutes / 5 = 144 slots
+    expect(slots).toHaveLength(144);
   });
 
-  it("has consistent 30-minute increments", () => {
+  it("has consistent 5-minute increments", () => {
     const slots = generateTimeSlots();
     for (let i = 1; i < slots.length; i++) {
       const [prevH, prevM] = slots[i - 1].split(":").map(Number);
       const [currH, currM] = slots[i].split(":").map(Number);
       const diffMinutes = (currH * 60 + currM) - (prevH * 60 + prevM);
-      expect(diffMinutes).toBe(30);
+      expect(diffMinutes).toBe(5);
     }
   });
 });
@@ -103,17 +107,17 @@ describe("generateTimeSlots", () => {
 describe("generateSlotKeys", () => {
   it("generates keys for all weekdays and time slots", () => {
     const keys = generateSlotKeys();
-    // 5 days * 24 slots = 120 keys
-    expect(keys).toHaveLength(120);
+    // 5 days * 144 slots = 720 keys
+    expect(keys).toHaveLength(720);
   });
 
   it("has correct format dayIdx-HH:mm", () => {
     const keys = generateSlotKeys();
     expect(keys[0]).toBe("0-07:00");
-    expect(keys[1]).toBe("0-07:30");
-    expect(keys[23]).toBe("0-18:30");
-    expect(keys[24]).toBe("1-07:00");
-    expect(keys[119]).toBe("4-18:30");
+    expect(keys[1]).toBe("0-07:05");
+    expect(keys[143]).toBe("0-18:55");
+    expect(keys[144]).toBe("1-07:00");
+    expect(keys[719]).toBe("4-18:55");
   });
 });
 
@@ -147,11 +151,11 @@ describe("filterEventsForDay", () => {
 describe("findOverlappingEvents", () => {
   it("finds events that overlap with a slot", () => {
     const events = [
-      makeEvent({ startTime: "09:30", endTime: "10:30" }), // overlaps 10:00-10:30
+      makeEvent({ startTime: "09:30", endTime: "10:30" }), // overlaps 10:00-10:05
       makeEvent({ startTime: "11:00", endTime: "12:00" }), // does not overlap
     ];
 
-    const overlapping = findOverlappingEvents(events, "10:00", "10:30");
+    const overlapping = findOverlappingEvents(events, "10:00", "10:05");
 
     expect(overlapping).toHaveLength(1);
     expect(overlapping[0].startTime).toBe("09:30");
@@ -162,7 +166,7 @@ describe("findOverlappingEvents", () => {
       makeEvent({ startTime: null, endTime: null }), // all-day
     ];
 
-    const overlapping = findOverlappingEvents(events, "10:00", "10:30");
+    const overlapping = findOverlappingEvents(events, "10:00", "10:05");
 
     expect(overlapping).toHaveLength(1);
   });
@@ -172,17 +176,17 @@ describe("findOverlappingEvents", () => {
       makeEvent({ startTime: "09:00", endTime: "10:00" }),
     ];
 
-    const overlapping = findOverlappingEvents(events, "10:00", "10:30");
+    const overlapping = findOverlappingEvents(events, "10:00", "10:05");
 
     expect(overlapping).toHaveLength(0);
   });
 
   it("event starting at slot end does not overlap", () => {
     const events = [
-      makeEvent({ startTime: "10:30", endTime: "11:00" }),
+      makeEvent({ startTime: "10:05", endTime: "11:00" }),
     ];
 
-    const overlapping = findOverlappingEvents(events, "10:00", "10:30");
+    const overlapping = findOverlappingEvents(events, "10:00", "10:05");
 
     expect(overlapping).toHaveLength(0);
   });
@@ -191,10 +195,10 @@ describe("findOverlappingEvents", () => {
     const events = [
       makeEvent({ startTime: "09:00", endTime: "10:30" }),
       makeEvent({ startTime: "10:00", endTime: "11:00" }),
-      makeEvent({ startTime: "10:15", endTime: "10:45" }),
+      makeEvent({ startTime: "10:02", endTime: "10:45" }),
     ];
 
-    const overlapping = findOverlappingEvents(events, "10:00", "10:30");
+    const overlapping = findOverlappingEvents(events, "10:00", "10:05");
 
     expect(overlapping).toHaveLength(3);
   });
@@ -285,7 +289,7 @@ describe("getCssClassForEvent", () => {
 // ─── Slot Labels ─────────────────────────────────────────────────────────────
 
 describe("getSlotLabel", () => {
-  it("returns truncated summary for accessible events", () => {
+  it("returns truncated summary for accessible events (default colSpan)", () => {
     expect(getSlotLabel(makeEvent({ summary: "Long Event Name" }))).toBe(
       "Long Ev\u2026"
     );
@@ -305,13 +309,63 @@ describe("getSlotLabel", () => {
   it("returns null when summary is null", () => {
     expect(getSlotLabel(makeEvent({ summary: null }))).toBeNull();
   });
+
+  it("allows longer labels with larger colSpan", () => {
+    // colSpan=12 (1 hour at 5-min slots) => 12*5/6 = 10 chars max
+    const label = getSlotLabel(
+      makeEvent({ summary: "A Very Long Meeting Name" }),
+      12
+    );
+    // 10 chars max → 9 chars + ellipsis
+    expect(label).toBe("A Very Lo\u2026");
+  });
+});
+
+// ─── Event Key ───────────────────────────────────────────────────────────────
+
+describe("getEventKey", () => {
+  it("returns a composite string key", () => {
+    const event = makeEvent({
+      date: "2025-02-10",
+      startTime: "10:00",
+      endTime: "11:00",
+      summary: "Meeting",
+      status: "PUBLIC",
+      accessible: true,
+    });
+
+    const key = getEventKey(event);
+
+    expect(key).toBe("2025-02-10|10:00|11:00|Meeting|PUBLIC|true");
+  });
+
+  it("produces different keys for different events", () => {
+    const event1 = makeEvent({ summary: "Meeting A" });
+    const event2 = makeEvent({ summary: "Meeting B" });
+
+    expect(getEventKey(event1)).not.toBe(getEventKey(event2));
+  });
+
+  it("produces same key for identical events", () => {
+    const event1 = makeEvent();
+    const event2 = makeEvent();
+
+    expect(getEventKey(event1)).toBe(getEventKey(event2));
+  });
+
+  it("handles null start/end times (all-day events)", () => {
+    const event = makeEvent({ startTime: null, endTime: null });
+    const key = getEventKey(event);
+
+    expect(key).toContain("|null|null|");
+  });
 });
 
 // ─── Tooltips ────────────────────────────────────────────────────────────────
 
 describe("buildTooltip", () => {
   it("returns null for empty events", () => {
-    expect(buildTooltip([], "10:00", "10:30")).toBeNull();
+    expect(buildTooltip([], "10:00", "10:05")).toBeNull();
   });
 
   it("shows summary and time for accessible events", () => {
@@ -319,7 +373,7 @@ describe("buildTooltip", () => {
       makeEvent({ summary: "Meeting", startTime: "10:00", endTime: "11:00" }),
     ];
 
-    const tooltip = buildTooltip(events, "10:00", "10:30");
+    const tooltip = buildTooltip(events, "10:00", "10:05");
 
     expect(tooltip).toBe("Meeting (10:00 - 11:00)");
   });
@@ -335,7 +389,7 @@ describe("buildTooltip", () => {
       }),
     ];
 
-    const tooltip = buildTooltip(events, "10:00", "10:30");
+    const tooltip = buildTooltip(events, "10:00", "10:05");
 
     expect(tooltip).toBe("BUSY (10:00 - 11:00)");
   });
@@ -346,7 +400,7 @@ describe("buildTooltip", () => {
       makeEvent({ summary: "Event B", startTime: "10:00", endTime: "11:00" }),
     ];
 
-    const tooltip = buildTooltip(events, "10:00", "10:30");
+    const tooltip = buildTooltip(events, "10:00", "10:05");
 
     expect(tooltip).toBe(
       "Event A (10:00 - 10:30)\nEvent B (10:00 - 11:00)"
@@ -358,7 +412,7 @@ describe("buildTooltip", () => {
       makeEvent({ summary: "Early", startTime: "07:00", endTime: "08:30" }),
     ];
 
-    const tooltip = buildTooltip(events, "07:00", "07:30");
+    const tooltip = buildTooltip(events, "07:00", "07:05");
 
     expect(tooltip).toBe("Early (7:00 - 8:30)");
   });
@@ -374,9 +428,10 @@ describe("computeUserSlots", () => {
     expect(slots["0-10:00"].cssClass).toBe("");
     expect(slots["0-10:00"].busy).toBe(false);
     expect(slots["0-10:00"].label).toBeNull();
+    expect(slots["0-10:00"].eventKey).toBeNull();
   });
 
-  it("marks busy slots with correct cssClass", () => {
+  it("marks busy slots with correct cssClass and eventKey", () => {
     const events = [
       makeEvent({
         date: "2025-02-10",
@@ -393,10 +448,17 @@ describe("computeUserSlots", () => {
     expect(slots["0-10:00"].cssClass).toBe("slot-busy");
     expect(slots["0-10:00"].busy).toBe(true);
     expect(slots["0-10:00"].label).toBe("Meeting");
+    expect(slots["0-10:00"].eventKey).not.toBeNull();
 
-    // 10:30 slot should also be busy (event goes 10:00-11:00)
+    // 10:05 through 10:55 slots should also be busy (event goes 10:00-11:00)
+    expect(slots["0-10:05"].cssClass).toBe("slot-busy");
+    expect(slots["0-10:05"].busy).toBe(true);
     expect(slots["0-10:30"].cssClass).toBe("slot-busy");
-    expect(slots["0-10:30"].busy).toBe(true);
+    expect(slots["0-10:55"].cssClass).toBe("slot-busy");
+
+    // All slots for this event should share the same eventKey
+    expect(slots["0-10:00"].eventKey).toBe(slots["0-10:05"].eventKey);
+    expect(slots["0-10:00"].eventKey).toBe(slots["0-10:55"].eventKey);
 
     // 11:00 slot should be free
     expect(slots["0-11:00"].cssClass).toBe("");
@@ -410,6 +472,7 @@ describe("computeUserSlots", () => {
     expect(slots["0-10:00"].busy).toBe(true);
     expect(slots["0-10:00"].label).toBe("?");
     expect(slots["0-10:00"].tooltip).toBe("Laden fehlgeschlagen");
+    expect(slots["0-10:00"].eventKey).toBeNull();
   });
 
   it("all-day events fill all slots for that day", () => {
@@ -427,10 +490,169 @@ describe("computeUserSlots", () => {
     // All Monday slots should be busy
     expect(slots["0-07:00"].busy).toBe(true);
     expect(slots["0-12:00"].busy).toBe(true);
-    expect(slots["0-18:30"].busy).toBe(true);
+    expect(slots["0-18:55"].busy).toBe(true);
 
     // Tuesday slots should be free
     expect(slots["1-07:00"].busy).toBe(false);
+  });
+});
+
+// ─── Cell Merging ────────────────────────────────────────────────────────────
+
+describe("computeMergedCells", () => {
+  const timeSlots = generateTimeSlots();
+
+  it("merges consecutive slots with the same eventKey", () => {
+    // Create a 1-hour event (12 x 5-min slots)
+    const events = [
+      makeEvent({
+        date: "2025-02-10",
+        startTime: "10:00",
+        endTime: "11:00",
+        summary: "Meeting",
+      }),
+    ];
+    const slots = computeUserSlots(events, "2025-02-10", false);
+    const merged = computeMergedCells(slots, timeSlots);
+
+    // Find the merged cell for the event
+    const eventCell = merged.find((c) => c.key === "0-10:00");
+    expect(eventCell).toBeDefined();
+    expect(eventCell!.colSpan).toBe(12); // 60 minutes / 5 = 12 slots
+    expect(eventCell!.slot.cssClass).toBe("slot-busy");
+  });
+
+  it("does not merge free slots", () => {
+    const slots = computeUserSlots([], "2025-02-10", false);
+    const merged = computeMergedCells(slots, timeSlots);
+
+    // All cells should have colSpan 1
+    expect(merged.every((c) => c.colSpan === 1)).toBe(true);
+    // Total cells should equal total slot count
+    expect(merged).toHaveLength(144 * 5);
+  });
+
+  it("does not merge different events in adjacent slots", () => {
+    const events = [
+      makeEvent({
+        date: "2025-02-10",
+        startTime: "10:00",
+        endTime: "10:30",
+        summary: "Event A",
+      }),
+      makeEvent({
+        date: "2025-02-10",
+        startTime: "10:30",
+        endTime: "11:00",
+        summary: "Event B",
+      }),
+    ];
+    const slots = computeUserSlots(events, "2025-02-10", false);
+    const merged = computeMergedCells(slots, timeSlots);
+
+    const cellA = merged.find((c) => c.key === "0-10:00");
+    const cellB = merged.find((c) => c.key === "0-10:30");
+
+    expect(cellA).toBeDefined();
+    expect(cellB).toBeDefined();
+    expect(cellA!.colSpan).toBe(6); // 30 min / 5 = 6 slots
+    expect(cellB!.colSpan).toBe(6);
+  });
+
+  it("does not merge events across day boundaries", () => {
+    // Events on Monday and Tuesday at different times
+    const events = [
+      makeEvent({
+        date: "2025-02-10",
+        startTime: "18:50",
+        endTime: "18:55",
+        summary: "Late Monday",
+      }),
+      makeEvent({
+        date: "2025-02-11",
+        startTime: "07:00",
+        endTime: "07:05",
+        summary: "Early Tuesday",
+      }),
+    ];
+    const slots = computeUserSlots(events, "2025-02-10", false);
+    const merged = computeMergedCells(slots, timeSlots);
+
+    // Last Monday slot and first Tuesday slot should be separate cells
+    const mondayLast = merged.find((c) => c.key === "0-18:50");
+    const tuesdayFirst = merged.find((c) => c.key === "1-07:00");
+
+    expect(mondayLast).toBeDefined();
+    expect(tuesdayFirst).toBeDefined();
+    expect(mondayLast!.colSpan).toBe(1);
+    expect(tuesdayFirst!.colSpan).toBe(1);
+  });
+
+  it("does not merge error cells", () => {
+    const slots = computeUserSlots([], "2025-02-10", true);
+    const merged = computeMergedCells(slots, timeSlots);
+
+    // Error cells have eventKey: null, so they should not be merged
+    expect(merged.every((c) => c.colSpan === 1)).toBe(true);
+  });
+
+  it("sets isFirstSlotOfDay correctly", () => {
+    const slots = computeUserSlots([], "2025-02-10", false);
+    const merged = computeMergedCells(slots, timeSlots);
+
+    // First slot of each day should have isFirstSlotOfDay = true
+    const firstMondayCell = merged.find((c) => c.key === "0-07:00");
+    const firstTuesdayCell = merged.find((c) => c.key === "1-07:00");
+    const midMondayCell = merged.find((c) => c.key === "0-10:00");
+
+    expect(firstMondayCell!.isFirstSlotOfDay).toBe(true);
+    expect(firstTuesdayCell!.isFirstSlotOfDay).toBe(true);
+    expect(midMondayCell!.isFirstSlotOfDay).toBe(false);
+  });
+
+  it("recomputes label to use available merged width", () => {
+    const events = [
+      makeEvent({
+        date: "2025-02-10",
+        startTime: "10:00",
+        endTime: "11:00",
+        summary: "Important Team Meeting",
+      }),
+    ];
+    const slots = computeUserSlots(events, "2025-02-10", false);
+    const merged = computeMergedCells(slots, timeSlots);
+
+    const eventCell = merged.find((c) => c.key === "0-10:00");
+    expect(eventCell).toBeDefined();
+    // With colSpan=12, maxChars = floor(12*5/6) = 10
+    // "Important Team Meeting" (22 chars) → first 9 chars + ellipsis
+    expect(eventCell!.slot.label).toBe("Important\u2026");
+  });
+
+  it("preserves total column count across all merged cells per day", () => {
+    const events = [
+      makeEvent({
+        date: "2025-02-10",
+        startTime: "09:00",
+        endTime: "10:00",
+        summary: "Morning",
+      }),
+      makeEvent({
+        date: "2025-02-10",
+        startTime: "14:00",
+        endTime: "15:30",
+        summary: "Afternoon",
+      }),
+    ];
+    const slots = computeUserSlots(events, "2025-02-10", false);
+    const merged = computeMergedCells(slots, timeSlots);
+
+    // Sum of colSpans for each day should equal 144
+    for (let dayIdx = 0; dayIdx < WEEKDAY_COUNT; dayIdx++) {
+      const dayCells = merged.filter((c) => c.dayIdx === dayIdx);
+      const totalCols = dayCells.reduce((sum, c) => sum + c.colSpan, 0);
+      expect(totalCols).toBe(144);
+    }
   });
 });
 
@@ -441,11 +663,11 @@ describe("computeAllFreeSlots", () => {
     const rows: ScheduleRow[] = [
       {
         user: makeUser("User 1", "/user1/"),
-        slots: { "0-10:00": { cssClass: "", label: null, tooltip: null, busy: false } },
+        slots: { "0-10:00": { cssClass: "", label: null, tooltip: null, busy: false, eventKey: null } },
       },
       {
         user: makeUser("User 2", "/user2/"),
-        slots: { "0-10:00": { cssClass: "", label: null, tooltip: null, busy: false } },
+        slots: { "0-10:00": { cssClass: "", label: null, tooltip: null, busy: false, eventKey: null } },
       },
     ];
 
@@ -459,11 +681,11 @@ describe("computeAllFreeSlots", () => {
     const rows: ScheduleRow[] = [
       {
         user: makeUser("User 1", "/user1/"),
-        slots: { "0-10:00": { cssClass: "slot-busy", label: null, tooltip: null, busy: true } },
+        slots: { "0-10:00": { cssClass: "slot-busy", label: null, tooltip: null, busy: true, eventKey: "key1" } },
       },
       {
         user: makeUser("User 2", "/user2/"),
-        slots: { "0-10:00": { cssClass: "", label: null, tooltip: null, busy: false } },
+        slots: { "0-10:00": { cssClass: "", label: null, tooltip: null, busy: false, eventKey: null } },
       },
     ];
 

@@ -52,12 +52,14 @@ export interface CalDavEvent {
  * @property label - short text to display in the cell (may be null)
  * @property tooltip - tooltip text (may be null)
  * @property busy - whether this slot is considered busy (used for "All Free" calculation)
+ * @property eventKey - composite key identifying the event in this slot (used for merging adjacent slots)
  */
 export interface SlotInfo {
   cssClass: string;
   label: string | null;
   tooltip: string | null;
   busy: boolean;
+  eventKey: string | null;
 }
 
 /**
@@ -82,6 +84,26 @@ export interface ConnectionInfo {
   url: string;
   username: string;
   password: string;
+}
+
+/**
+ * Represents a merged cell in the schedule grid, where consecutive slots
+ * belonging to the same event are combined into a single table cell.
+ *
+ * @property key - slot key of the first cell in the merged group
+ * @property colSpan - number of 5-minute slots this cell spans
+ * @property slot - the SlotInfo to render (from the first slot)
+ * @property isFirstSlotOfDay - whether this is the first slot of a new day
+ * @property dayIdx - weekday index (0=Mon, ..., 4=Fri)
+ * @property endsAtFullHour - whether the cell's right edge aligns with a full hour
+ */
+export interface MergedCell {
+  key: string;
+  colSpan: number;
+  slot: SlotInfo;
+  isFirstSlotOfDay: boolean;
+  dayIdx: number;
+  endsAtFullHour: boolean;
 }
 
 /**

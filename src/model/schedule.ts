@@ -9,7 +9,7 @@
  * side effects. This makes them easy to test and reason about.
  */
 
-import type { CalDavUser, CalDavEvent, SlotInfo, ScheduleRow } from "./types.js";
+import type { CalDavUser, CalDavEvent, SlotInfo, ScheduleRow, MergedCell } from "./types.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 // Ported from CalDavView.java lines 69-84
@@ -21,7 +21,7 @@ export const SCHEDULE_START = "07:00";
 export const SCHEDULE_END = "19:00";
 
 /** Duration of each time slot in minutes. */
-export const SLOT_MINUTES = 30;
+export const SLOT_MINUTES = 5;
 
 /**
  * Weekday indices (0 = Monday, 4 = Friday).
@@ -192,12 +192,26 @@ export function getCssClassForEvent(event: CalDavEvent): string {
  *
  * Ported from: CalDavView.java getSlotLabel() lines 676-682
  */
-export function getSlotLabel(event: CalDavEvent): string | null {
+export function getSlotLabel(event: CalDavEvent, colSpan: number = 1): string | null {
   if (event.accessible && event.summary !== null) {
     const summary = event.summary;
-    return summary.length > 8 ? summary.substring(0, 7) + "\u2026" : summary;
+    // Scale max characters based on available width (colSpan * 5px column width)
+    // Approximate 6px per character at the small font size
+    const maxChars = Math.max(8, Math.floor((colSpan * 5) / 6));
+    return summary.length > maxChars
+      ? summary.substring(0, maxChars - 1) + "\u2026"
+      : summary;
   }
   return null;
+}
+
+/**
+ * Returns a composite key that uniquely identifies an event instance.
+ * Used to detect when consecutive time slots represent the same event,
+ * enabling colSpan merging in the schedule grid.
+ */
+export function getEventKey(event: CalDavEvent): string {
+  return `${event.date}|${event.startTime}|${event.endTime}|${event.summary}|${event.status}|${event.accessible}`;
 }
 
 /**
@@ -276,6 +290,7 @@ export function computeUserSlots(
           label: "?",
           tooltip: "Laden fehlgeschlagen",
           busy: true,
+          eventKey: null,
         };
         continue;
       }
@@ -285,15 +300,16 @@ export function computeUserSlots(
 
       if (overlapping.length === 0) {
         // Free slot
-        slots[key] = { cssClass: "", label: null, tooltip: null, busy: false };
+        slots[key] = { cssClass: "", label: null, tooltip: null, busy: false, eventKey: null };
       } else {
         // Busy slot - determine the most significant event for display
         const primaryEvent = selectPrimaryEvent(overlapping);
         const cssClass = getCssClassForEvent(primaryEvent);
         const label = getSlotLabel(primaryEvent);
         const tooltip = buildTooltip(overlapping, time, slotEnd);
+        const eventKey = getEventKey(primaryEvent);
 
-        slots[key] = { cssClass, label, tooltip, busy: true };
+        slots[key] = { cssClass, label, tooltip, busy: true, eventKey };
       }
     }
   }
@@ -325,6 +341,7 @@ export function computeAllFreeSlots(
         label: null,
         tooltip: "Alle Benutzer sind frei",
         busy: false,
+        eventKey: null,
       };
     } else {
       slots[key] = {
@@ -332,11 +349,128 @@ export function computeAllFreeSlots(
         label: null,
         tooltip: null,
         busy: true,
+        eventKey: null,
       };
     }
   }
 
   return slots;
+}
+
+/**
+ * Merges consecutive slots belonging to the same event into single cells
+ * with colSpan > 1. Free slots, error slots, and summary row slots remain
+ * as individual cells (colSpan = 1). Events never merge across day boundaries.
+ *
+ * After merging, the label of the merged cell is recomputed to take advantage
+ * of the wider available space.
+ *
+ * @param slots     the flat slot map (e.g. from computeUserSlots)
+ * @param timeSlots the list of time slot start times (e.g. from generateTimeSlots)
+ */
+export function computeMergedCells(
+  slots: Record<string, SlotInfo>,
+  timeSlots: string[]
+): MergedCell[] {
+  const merged: MergedCell[] = [];
+
+  for (let dayIdx = 0; dayIdx < WEEKDAY_COUNT; dayIdx++) {
+    let i = 0;
+    while (i < timeSlots.length) {
+      const time = timeSlots[i];
+      const key = `${dayIdx}-${time}`;
+      const slot = slots[key];
+      const isFirstSlotOfDay = i === 0;
+
+      if (slot && slot.eventKey !== null) {
+        // Start of a busy event — try to merge consecutive slots with same eventKey
+        let colSpan = 1;
+        while (
+          i + colSpan < timeSlots.length &&
+          slots[`${dayIdx}-${timeSlots[i + colSpan]}`]?.eventKey === slot.eventKey
+        ) {
+          colSpan++;
+        }
+
+        // Check if right edge aligns with a full hour
+        const nextTime = i + colSpan < timeSlots.length
+          ? timeSlots[i + colSpan]
+          : SCHEDULE_END;
+        const endsAtFullHour = nextTime.endsWith(":00");
+
+        // Recompute label with wider available space
+        const label = slot.label !== null
+          ? recomputeLabel(slot.label, slot.tooltip, colSpan)
+          : null;
+
+        merged.push({
+          key,
+          colSpan,
+          slot: { ...slot, label },
+          isFirstSlotOfDay,
+          dayIdx,
+          endsAtFullHour,
+        });
+
+        i += colSpan;
+      } else {
+        // Free slot, error slot, or summary slot — no merging
+        const nextTime = i + 1 < timeSlots.length
+          ? timeSlots[i + 1]
+          : SCHEDULE_END;
+        const endsAtFullHour = nextTime.endsWith(":00");
+
+        merged.push({
+          key,
+          colSpan: 1,
+          slot: slot ?? { cssClass: "", label: null, tooltip: null, busy: false, eventKey: null },
+          isFirstSlotOfDay,
+          dayIdx,
+          endsAtFullHour,
+        });
+        i++;
+      }
+    }
+  }
+
+  return merged;
+}
+
+/**
+ * Recomputes a slot label to take advantage of a wider merged cell.
+ * Extracts the full summary from the tooltip (which contains untruncated text)
+ * and truncates it to fit the available width.
+ *
+ * @param currentLabel the currently truncated label
+ * @param tooltip      the tooltip string (contains the full summary)
+ * @param colSpan      number of columns the merged cell spans
+ */
+function recomputeLabel(
+  currentLabel: string,
+  tooltip: string | null,
+  colSpan: number
+): string {
+  // Calculate max characters based on available width
+  // Each column is 5px wide, approximate 6px per character
+  const maxChars = Math.max(8, Math.floor((colSpan * 5) / 6));
+
+  // Extract full summary from tooltip if available
+  // Tooltip format for accessible events: "Summary (HH:mm - HH:mm)"
+  let fullSummary = currentLabel;
+  if (tooltip) {
+    const firstLine = tooltip.split("\n")[0];
+    // Remove the time suffix like " (10:00 - 11:00)"
+    const match = firstLine.match(/^(.+?)\s*\(\d+:\d+\s*-\s*\d+:\d+\)$/);
+    if (match) {
+      fullSummary = match[1];
+    } else {
+      fullSummary = firstLine;
+    }
+  }
+
+  return fullSummary.length > maxChars
+    ? fullSummary.substring(0, maxChars - 1) + "\u2026"
+    : fullSummary;
 }
 
 /**

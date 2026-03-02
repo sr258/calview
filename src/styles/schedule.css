@@ -60,15 +60,17 @@
 /* Time header row: e.g. "7:00", "8:00" */
 .schedule-time-header {
   background-color: var(--cv-surface);
-  padding: 2px 1px;
+  padding: 2px 0;
   font-weight: 400;
   font-size: var(--cv-font-xxs);
   color: var(--cv-text-secondary);
-  text-align: center;
+  text-align: left;
   border-bottom: 2px solid var(--cv-contrast-20);
-  min-width: 40px;
-  width: 40px;
+  min-width: 5px;
+  width: 5px;
   white-space: nowrap;
+  overflow: visible;
+  position: relative;
 }
 
 /* Day separator: thicker left border on first slot of each day (except first) */
@@ -146,20 +148,24 @@
 /* ─── Schedule Cell (Slot) Base ─────────────────────────────────────────── */
 
 .schedule-cell {
-  min-width: 40px;
-  width: 40px;
+  min-width: 5px;
+  width: 5px;
   height: 28px;
   min-height: 28px;
-  padding: 1px 2px;
+  padding: 0 1px;
   text-align: center;
   vertical-align: middle;
   font-size: var(--cv-font-xxs);
   cursor: default;
   border-bottom: 1px solid var(--cv-contrast-10);
-  border-right: 1px solid var(--cv-contrast-5);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Hour separator: right border on cells whose right edge aligns with a full hour */
+.hour-separator {
+  border-right: 1px solid var(--cv-contrast-10);
 }
 
 /* ─── Slot Status Colors ────────────────────────────────────────────────── */
