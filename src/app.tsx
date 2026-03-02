@@ -10,17 +10,18 @@
  * - Main content: UserSearch, WeekNavigator, ScheduleGrid
  * - Notifications (toast container)
  *
- * On mount: if not connected, the login dialog is already shown
- * (showLoginDialog starts as true in app-state.ts).
+ * On mount: checks for saved credentials and auto-connects if found.
+ * If no saved credentials, the login dialog is shown after the check.
  */
 
-import { useState, useCallback } from "preact/hooks";
+import { useState, useCallback, useEffect } from "preact/hooks";
 import { Toolbar } from "./components/toolbar.js";
 import { LoginDialog } from "./components/login-dialog.js";
 import { UserSearch } from "./components/user-search.js";
 import { WeekNavigator } from "./components/week-navigator.js";
 import { ScheduleGrid } from "./components/schedule-grid.js";
 import { Notifications, type NotificationVariant } from "./components/notifications.js";
+import { initializeApp } from "./state/app-state.js";
 
 interface ToastMessage {
   id: number;
@@ -46,6 +47,24 @@ export function App() {
     },
     []
   );
+
+  // On mount, check for saved credentials and auto-login.
+  // This runs before the login dialog is ever shown, so there is no flash.
+  useEffect(() => {
+    initializeApp().then((result) => {
+      if (result.status === "success") {
+        showNotification(
+          "Verbindung erfolgreich. Sie können jetzt nach Benutzern suchen.",
+          "success"
+        );
+      } else if (result.status === "failed") {
+        showNotification(
+          "Gespeicherte Anmeldedaten ungültig. Bitte erneut anmelden.",
+          "warning"
+        );
+      }
+    });
+  }, []);
 
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));

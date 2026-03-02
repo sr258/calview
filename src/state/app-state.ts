@@ -28,6 +28,7 @@ import {
   buildScheduleRows,
 } from "../model/schedule.js";
 import { setAcceptInvalidCerts } from "../services/http.js";
+import { clearCredentials, loadCredentials } from "../services/credential-store.js";
 
 // ─── Signals (Reactive State) ────────────────────────────────────────────────
 // Ported from CalDavView.java instance fields lines 104-128
@@ -84,9 +85,16 @@ export const currentWeekStart = signal<string>(getMondayOfWeek());
 export const loading = signal<boolean>(false);
 
 /**
- * 6.8 — Controls login dialog visibility. Starts open.
+ * 6.8 — Controls login dialog visibility. Starts hidden until
+ * credential check completes (see `initializeApp()`).
  */
-export const showLoginDialog = signal<boolean>(true);
+export const showLoginDialog = signal<boolean>(false);
+
+/**
+ * 6.8b — Whether the app is still checking for saved credentials.
+ * While true, the login dialog is suppressed to avoid a visible flash.
+ */
+export const initializing = signal<boolean>(true);
 
 /**
  * 6.9 — Whether to accept invalid TLS certificates (e.g. self-signed or
@@ -246,6 +254,7 @@ export async function refreshAllEvents(): Promise<void> {
 
 /**
  * Disconnects from the server and resets all state.
+ * Also clears any persisted credentials so the user must log in again.
  *
  * Ported from: CalDavView.java disconnect() lines 813-825
  */
@@ -256,6 +265,9 @@ export function disconnect(): void {
   userEvents.value = new Map();
   failedUsers.value = new Set();
   showLoginDialog.value = true;
+
+  // Clear persisted credentials (fire-and-forget)
+  clearCredentials();
 }
 
 /**
@@ -346,5 +358,53 @@ async function fetchEventsForSingleUser(
           ? e.message
           : "Unbekannter Fehler";
     return message;
+  }
+}
+
+// ─── App Initialization ──────────────────────────────────────────────────────
+
+/**
+ * Checks for saved credentials and attempts auto-login.
+ * Must be called once at app startup (from the root component).
+ *
+ * - If saved credentials are found, attempts to connect silently.
+ * - If auto-connect succeeds, the dialog is never shown.
+ * - If auto-connect fails, clears the invalid credentials and shows the dialog.
+ * - If no saved credentials exist, shows the dialog immediately.
+ *
+ * @returns result of the auto-login attempt for notification purposes:
+ *   - `{ status: "success" }` if auto-login succeeded
+ *   - `{ status: "failed", message: string }` if auto-login failed
+ *   - `{ status: "none" }` if no saved credentials existed
+ */
+export async function initializeApp(): Promise<
+  | { status: "success" }
+  | { status: "failed"; message: string }
+  | { status: "none" }
+> {
+  try {
+    const saved = await loadCredentials();
+
+    if (!saved) {
+      showLoginDialog.value = true;
+      return { status: "none" };
+    }
+
+    // Attempt auto-connect with saved credentials
+    const error = await connect(saved.url, saved.username, saved.password);
+
+    if (error) {
+      // Credentials are stale — clear them and show dialog
+      await clearCredentials();
+      showLoginDialog.value = true;
+      return { status: "failed", message: error };
+    }
+
+    return { status: "success" };
+  } catch {
+    showLoginDialog.value = true;
+    return { status: "none" };
+  } finally {
+    initializing.value = false;
   }
 }

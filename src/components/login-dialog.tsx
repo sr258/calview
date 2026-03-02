@@ -19,7 +19,13 @@ import {
   connection,
   connect,
   acceptInvalidCerts,
+  initializing,
 } from "../state/app-state.js";
+import {
+  loadCredentials,
+  saveCredentials,
+  clearCredentials,
+} from "../services/credential-store.js";
 
 /**
  * Notification callback type for showing toast messages from the dialog.
@@ -37,6 +43,16 @@ export function LoginDialog({ onNotification }: LoginDialogProps) {
   const passwordRef = useRef<HTMLInputElement>(null);
 
   const [connecting, setConnecting] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+
+  // When the dialog becomes visible, check if we have saved credentials
+  // to pre-set the "remember me" checkbox state
+  useEffect(() => {
+    if (!showLoginDialog.value) return;
+    loadCredentials().then((saved) => {
+      if (saved) setRememberMe(true);
+    });
+  }, [showLoginDialog.value]);
 
   // Auto-focus the first empty field when dialog opens
   useEffect(() => {
@@ -54,7 +70,7 @@ export function LoginDialog({ onNotification }: LoginDialogProps) {
     });
   }, [showLoginDialog.value]);
 
-  if (!showLoginDialog.value) {
+  if (initializing.value || !showLoginDialog.value) {
     return null;
   }
 
@@ -75,6 +91,12 @@ export function LoginDialog({ onNotification }: LoginDialogProps) {
     if (error) {
       onNotification?.(error, "error");
     } else {
+      // Persist or clear credentials based on checkbox
+      if (rememberMe) {
+        await saveCredentials({ url: url.trim(), username: username.trim(), password });
+      } else {
+        await clearCredentials();
+      }
       onNotification?.(
         "Verbindung erfolgreich. Sie können jetzt nach Benutzern suchen.",
         "success"
@@ -154,11 +176,29 @@ export function LoginDialog({ onNotification }: LoginDialogProps) {
                 }}
                 disabled={connecting}
               />
-              Accept invalid TLS certificates
+              Ungültige TLS-Zertifikate akzeptieren
             </label>
             <span class="form-hint">
-              Enable if the server uses a self-signed or incomplete certificate
-              chain.
+              Aktivieren, wenn der Server ein selbstsigniertes oder
+              unvollständiges Zertifikat verwendet.
+            </span>
+          </div>
+
+          <div class="form-field form-field-checkbox">
+            <label for="login-remember-me">
+              <input
+                id="login-remember-me"
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => {
+                  setRememberMe((e.target as HTMLInputElement).checked);
+                }}
+                disabled={connecting}
+              />
+              Anmeldedaten merken
+            </label>
+            <span class="form-hint">
+              Anmeldedaten werden sicher im Betriebssystem gespeichert.
             </span>
           </div>
         </div>

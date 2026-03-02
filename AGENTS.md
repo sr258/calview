@@ -138,3 +138,8 @@ The app uses `--cv-*` custom properties (defined in `styles/index.css`) replacin
 | `--cv-success-text` | Success text color (#2e7d32) |
 | `--cv-contrast-*` | Contrast/border colors |
 | `--cv-text-secondary` | Secondary text color |
+
+## Language Conventions
+
+- **User-facing text** (labels, buttons, tooltips, notifications, placeholders) must be in **German**.
+- **Code** (variable names, comments, documentation, commit messages) must be in **English**.
