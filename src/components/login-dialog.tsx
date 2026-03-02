@@ -113,7 +113,7 @@ export function LoginDialog({ onNotification }: LoginDialogProps) {
               ref={urlRef}
               id="login-url"
               type="text"
-              value={defaultUrl}
+              defaultValue={defaultUrl}
               placeholder="https://..."
               disabled={connecting}
             />
@@ -125,7 +125,7 @@ export function LoginDialog({ onNotification }: LoginDialogProps) {
               ref={usernameRef}
               id="login-username"
               type="text"
-              value={defaultUsername}
+              defaultValue={defaultUsername}
               placeholder="Benutzername"
               disabled={connecting}
             />
