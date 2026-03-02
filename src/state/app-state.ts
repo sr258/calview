@@ -11,7 +11,7 @@
  * mutate signals and orchestrate async CalDAV operations.
  */
 
-import { signal, computed } from "@preact/signals";
+import { signal, computed, effect } from "@preact/signals";
 import type {
   CalDavUser,
   CalDavEvent,
@@ -27,6 +27,7 @@ import {
   getMondayOfWeek,
   buildScheduleRows,
 } from "../model/schedule.js";
+import { setAcceptInvalidCerts } from "../services/http.js";
 
 // ─── Signals (Reactive State) ────────────────────────────────────────────────
 // Ported from CalDavView.java instance fields lines 104-128
@@ -86,6 +87,18 @@ export const loading = signal<boolean>(false);
  * 6.8 — Controls login dialog visibility. Starts open.
  */
 export const showLoginDialog = signal<boolean>(true);
+
+/**
+ * 6.9 — Whether to accept invalid TLS certificates (e.g. self-signed or
+ * incomplete certificate chains). Off by default for security; can be
+ * toggled in the login dialog. Only affects Tauri mode.
+ */
+export const acceptInvalidCerts = signal<boolean>(false);
+
+// Keep the HTTP layer in sync with the signal value
+effect(() => {
+  setAcceptInvalidCerts(acceptInvalidCerts.value);
+});
 
 // ─── Computed Values ─────────────────────────────────────────────────────────
 
