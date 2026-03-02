@@ -63,7 +63,7 @@ export function LoginDialog({ onNotification }: LoginDialogProps) {
     const password = passwordRef.current?.value ?? "";
 
     if (!url.trim() || !username.trim() || !password.trim()) {
-      onNotification?.("Please fill in all fields.", "warning");
+      onNotification?.("Bitte alle Felder ausfüllen.", "warning");
       return;
     }
 
@@ -75,7 +75,7 @@ export function LoginDialog({ onNotification }: LoginDialogProps) {
       onNotification?.(error, "error");
     } else {
       onNotification?.(
-        "Connected successfully. You can now search for users.",
+        "Verbindung erfolgreich. Sie können jetzt nach Benutzern suchen.",
         "success"
       );
     }
@@ -102,12 +102,12 @@ export function LoginDialog({ onNotification }: LoginDialogProps) {
     <div class="login-overlay" onKeyDown={handleKeyDown}>
       <div class="login-dialog">
         <div class="login-dialog-header">
-          <h2>Connect to CalDAV Server</h2>
+          <h2>Mit CalDAV-Server verbinden</h2>
         </div>
 
         <div class="login-dialog-body">
           <div class="form-field">
-            <label for="login-url">CalDAV URL</label>
+            <label for="login-url">CalDAV-URL</label>
             <input
               ref={urlRef}
               id="login-url"
@@ -119,24 +119,24 @@ export function LoginDialog({ onNotification }: LoginDialogProps) {
           </div>
 
           <div class="form-field">
-            <label for="login-username">Username</label>
+            <label for="login-username">Benutzername</label>
             <input
               ref={usernameRef}
               id="login-username"
               type="text"
               value={defaultUsername}
-              placeholder="Username"
+              placeholder="Benutzername"
               disabled={connecting}
             />
           </div>
 
           <div class="form-field">
-            <label for="login-password">Password</label>
+            <label for="login-password">Passwort</label>
             <input
               ref={passwordRef}
               id="login-password"
               type="password"
-              placeholder="Password"
+              placeholder="Passwort"
               disabled={connecting}
             />
           </div>
@@ -149,7 +149,7 @@ export function LoginDialog({ onNotification }: LoginDialogProps) {
               onClick={handleCancel}
               disabled={connecting}
             >
-              Cancel
+              Abbrechen
             </button>
           )}
           <button
@@ -157,7 +157,7 @@ export function LoginDialog({ onNotification }: LoginDialogProps) {
             onClick={handleConnect}
             disabled={connecting}
           >
-            {connecting ? "Connecting..." : "Connect"}
+            {connecting ? "Verbinde..." : "Verbinden"}
           </button>
         </div>
       </div>

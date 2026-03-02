@@ -79,7 +79,7 @@ export function parseICalendarData(
 
     if (accessible) {
       events.push({
-        summary: summary !== null ? summary.trim() : "(No title)",
+        summary: summary !== null ? summary.trim() : "(Kein Titel)",
         date,
         startTime,
         endTime,

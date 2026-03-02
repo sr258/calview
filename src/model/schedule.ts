@@ -31,7 +31,7 @@ export const SLOT_MINUTES = 30;
 export const WEEKDAY_COUNT = 5;
 
 /** Short day names for display. */
-export const DAY_SHORT_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+export const DAY_SHORT_NAMES = ["Mo", "Di", "Mi", "Do", "Fr"];
 
 // ─── Time Slot Generation ────────────────────────────────────────────────────
 
@@ -274,7 +274,7 @@ export function computeUserSlots(
         slots[key] = {
           cssClass: "schedule-error-cell",
           label: "?",
-          tooltip: "Failed to load",
+          tooltip: "Laden fehlgeschlagen",
           busy: true,
         };
         continue;
@@ -323,7 +323,7 @@ export function computeAllFreeSlots(
       slots[key] = {
         cssClass: "slot-all-free",
         label: null,
-        tooltip: "All users are free",
+        tooltip: "Alle Benutzer sind frei",
         busy: false,
       };
     } else {
@@ -469,16 +469,16 @@ export function formatWeekLabel(weekStart: string): string {
   const monthNames = [
     "Jan",
     "Feb",
-    "Mar",
+    "Mär",
     "Apr",
-    "May",
+    "Mai",
     "Jun",
     "Jul",
     "Aug",
     "Sep",
-    "Oct",
+    "Okt",
     "Nov",
-    "Dec",
+    "Dez",
   ];
 
   const monMonth = monthNames[monday.getUTCMonth()];
@@ -487,7 +487,7 @@ export function formatWeekLabel(weekStart: string): string {
   const friDay = friday.getUTCDate();
   const year = monday.getUTCFullYear();
 
-  return `${monMonth} ${monDay} - ${friMonth} ${friDay}, ${year}`;
+  return `${monDay}. ${monMonth} - ${friDay}. ${friMonth} ${year}`;
 }
 
 /**
@@ -513,17 +513,17 @@ export function formatDayHeader(weekStart: string, dayIdx: number): string {
   const monthNames = [
     "Jan",
     "Feb",
-    "Mar",
+    "Mär",
     "Apr",
-    "May",
+    "Mai",
     "Jun",
     "Jul",
     "Aug",
     "Sep",
-    "Oct",
+    "Okt",
     "Nov",
-    "Dec",
+    "Dez",
   ];
 
-  return `${DAY_SHORT_NAMES[dayIdx]} ${monthNames[date.getUTCMonth()]} ${date.getUTCDate()}`;
+  return `${DAY_SHORT_NAMES[dayIdx]} ${date.getUTCDate()}. ${monthNames[date.getUTCMonth()]}`;
 }

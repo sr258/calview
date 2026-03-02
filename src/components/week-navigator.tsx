@@ -28,7 +28,7 @@ export function WeekNavigator() {
         class="btn btn-tertiary"
         onClick={() => navigateWeek(-1)}
         disabled={!hasUsers}
-        title="Previous week"
+        title="Vorherige Woche"
       >
         &#x276E;
       </button>
@@ -37,14 +37,14 @@ export function WeekNavigator() {
         onClick={() => navigateToToday()}
         disabled={!hasUsers}
       >
-        Today
+        Heute
       </button>
       <span class="week-label">{label}</span>
       <button
         class="btn btn-tertiary"
         onClick={() => navigateWeek(1)}
         disabled={!hasUsers}
-        title="Next week"
+        title="Nächste Woche"
       >
         &#x276F;
       </button>

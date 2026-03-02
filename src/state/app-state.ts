@@ -139,7 +139,7 @@ export async function connect(
         ? e.message
         : e instanceof Error
           ? e.message
-          : "Unknown error";
+          : "Unbekannter Fehler";
     return message;
   } finally {
     loading.value = false;
@@ -291,7 +291,7 @@ async function fetchEventsForSingleUser(
   user: CalDavUser
 ): Promise<string | null> {
   if (connection.value === null) {
-    return "Not connected";
+    return "Nicht verbunden";
   }
 
   try {
@@ -331,7 +331,7 @@ async function fetchEventsForSingleUser(
         ? e.message
         : e instanceof Error
           ? e.message
-          : "Unknown error";
+          : "Unbekannter Fehler";
     return message;
   }
 }

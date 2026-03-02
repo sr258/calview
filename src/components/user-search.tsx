@@ -129,7 +129,7 @@ export function UserSearch() {
   return (
     <div class="user-search">
       <label class="user-search-label" for="user-search-input">
-        Search Users
+        Benutzer suchen
       </label>
       <div class="user-search-input-wrapper">
         <svg class="user-search-icon" viewBox="0 0 24 24" width="18" height="18">
@@ -145,8 +145,8 @@ export function UserSearch() {
           class="user-search-input"
           placeholder={
             isDisabled
-              ? "Connect to search users"
-              : `Type at least ${MIN_SEARCH_LENGTH} characters to search...`
+              ? "Verbinden, um Benutzer zu suchen"
+              : `Mindestens ${MIN_SEARCH_LENGTH} Zeichen eingeben...`
           }
           value={query}
           onInput={handleInput}

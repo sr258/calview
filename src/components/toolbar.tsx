@@ -31,7 +31,7 @@ export function Toolbar() {
 
   return (
     <div class="toolbar">
-      <h1 class="toolbar-title">Planner</h1>
+      <h1 class="toolbar-title">Terminplaner</h1>
       <div class="toolbar-actions">
         <span
           class="connection-status"
@@ -41,18 +41,18 @@ export function Toolbar() {
               : "var(--cv-text-secondary)",
           }}
         >
-          {isConnected ? `Connected as ${username}` : "Not connected"}
+          {isConnected ? `Verbunden als ${username}` : "Nicht verbunden"}
         </span>
         {isConnected && (
           <button
             class="btn btn-secondary btn-small"
             onClick={handleDisconnect}
           >
-            Disconnect
+            Trennen
           </button>
         )}
         <button class="btn btn-primary" onClick={handleConnect}>
-          {isConnected ? "Reconnect" : "Connect"}
+          {isConnected ? "Neu verbinden" : "Verbinden"}
         </button>
       </div>
     </div>

@@ -45,7 +45,7 @@ export function Notifications({ toasts, onDismiss }: NotificationsProps) {
               e.stopPropagation();
               onDismiss(toast.id);
             }}
-            aria-label="Dismiss"
+            aria-label="Schließen"
           >
             &times;
           </button>

@@ -617,7 +617,7 @@ describe("validation", () => {
       CalDavError
     );
     await expect(discoverUsers("", "user", "pass")).rejects.toThrow(
-      /URL must not be empty/
+      /URL darf nicht leer/
     );
   });
 
@@ -627,7 +627,7 @@ describe("validation", () => {
     ).rejects.toThrow(CalDavError);
     await expect(
       discoverUsers("https://example.com", "", "pass")
-    ).rejects.toThrow(/Username must not be empty/);
+    ).rejects.toThrow(/Benutzername darf nicht leer/);
   });
 
   it("discoverUsers rejects blank password", async () => {
@@ -636,7 +636,7 @@ describe("validation", () => {
     ).rejects.toThrow(CalDavError);
     await expect(
       discoverUsers("https://example.com", "user", "")
-    ).rejects.toThrow(/Password must not be empty/);
+    ).rejects.toThrow(/Passwort darf nicht leer/);
   });
 
   it("searchUsers rejects blank search term", async () => {
@@ -645,7 +645,7 @@ describe("validation", () => {
     ).rejects.toThrow(CalDavError);
     await expect(
       searchUsers("https://example.com", "user", "pass", "")
-    ).rejects.toThrow(/Search term must not be empty/);
+    ).rejects.toThrow(/Suchbegriff darf nicht leer/);
   });
 
   it("searchUsers rejects blank URL", async () => {
@@ -654,6 +654,6 @@ describe("validation", () => {
     ).rejects.toThrow(CalDavError);
     await expect(
       searchUsers("", "user", "pass", "test")
-    ).rejects.toThrow(/URL must not be empty/);
+    ).rejects.toThrow(/URL darf nicht leer/);
   });
 });

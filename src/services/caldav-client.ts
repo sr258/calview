@@ -225,7 +225,7 @@ export function parsePrincipalSearchResponse(xml: string): CalDavUser[] {
       throw e;
     }
     throw new CalDavError(
-      "Failed to parse principal search response: " +
+      "Fehler beim Parsen der Benutzersuche: " +
         (e instanceof Error ? e.message : String(e)),
       e
     );
@@ -277,7 +277,7 @@ export function parseCalendarQueryResponse(
       throw e;
     }
     throw new CalDavError(
-      "Failed to parse calendar query response: " +
+      "Fehler beim Parsen der Kalenderabfrage: " +
         (e instanceof Error ? e.message : String(e)),
       e
     );
@@ -405,17 +405,17 @@ async function sendReport(
       return response.body;
     case 401:
       throw new CalDavError(
-        "Authentication failed. Please check your username and password."
+        "Authentifizierung fehlgeschlagen. Bitte überprüfen Sie Benutzername und Passwort."
       );
     case 403:
       throw new CalDavError(
-        "Access denied. You don't have permission to search principals."
+        "Zugriff verweigert. Sie haben keine Berechtigung, Benutzer zu suchen."
       );
     case 404:
-      throw new CalDavError("URL not found. Please check the URL.");
+      throw new CalDavError("URL nicht gefunden. Bitte überprüfen Sie die URL.");
     default:
       throw new CalDavError(
-        `Server returned unexpected status ${response.status}.`
+        `Server hat unerwarteten Status ${response.status} zurückgegeben.`
       );
   }
 }
@@ -448,17 +448,17 @@ async function sendCalendarReport(
       return response.body;
     case 401:
       throw new CalDavError(
-        "Authentication failed. Please check your username and password."
+        "Authentifizierung fehlgeschlagen. Bitte überprüfen Sie Benutzername und Passwort."
       );
     case 403:
       throw new CalDavError(
-        "Access denied. You don't have permission to access this calendar."
+        "Zugriff verweigert. Sie haben keine Berechtigung, auf diesen Kalender zuzugreifen."
       );
     case 404:
-      throw new CalDavError("Calendar not found at this URL.");
+      throw new CalDavError("Kalender unter dieser URL nicht gefunden.");
     default:
       throw new CalDavError(
-        `Server returned unexpected status ${response.status}.`
+        `Server hat unerwarteten Status ${response.status} zurückgegeben.`
       );
   }
 }
@@ -491,17 +491,17 @@ async function sendFreeBusyReport(
       return response.body;
     case 401:
       throw new CalDavError(
-        "Authentication failed. Please check your username and password."
+        "Authentifizierung fehlgeschlagen. Bitte überprüfen Sie Benutzername und Passwort."
       );
     case 403:
       throw new CalDavError(
-        "Access denied. You don't have permission to view free/busy data for this calendar."
+        "Zugriff verweigert. Sie haben keine Berechtigung, Frei/Belegt-Daten für diesen Kalender anzuzeigen."
       );
     case 404:
-      throw new CalDavError("Calendar not found at this URL.");
+      throw new CalDavError("Kalender unter dieser URL nicht gefunden.");
     default:
       throw new CalDavError(
-        `Server returned unexpected status ${response.status}.`
+        `Server hat unerwarteten Status ${response.status} zurückgegeben.`
       );
   }
 }
@@ -517,13 +517,13 @@ async function sendFreeBusyReport(
  */
 function validateInputs(url: string, username: string, password: string): void {
   if (!url || url.trim() === "") {
-    throw new CalDavError("CalDAV URL must not be empty.");
+    throw new CalDavError("CalDAV-URL darf nicht leer sein.");
   }
   if (!username || username.trim() === "") {
-    throw new CalDavError("Username must not be empty.");
+    throw new CalDavError("Benutzername darf nicht leer sein.");
   }
   if (!password || password.trim() === "") {
-    throw new CalDavError("Password must not be empty.");
+    throw new CalDavError("Passwort darf nicht leer sein.");
   }
 }
 
@@ -555,7 +555,7 @@ export async function discoverUsers(
       throw e;
     }
     throw new CalDavError(
-      "Failed to discover users: " +
+      "Fehler beim Abrufen der Benutzer: " +
         (e instanceof Error ? e.message : String(e)),
       e
     );
@@ -577,7 +577,7 @@ export async function searchUsers(
 ): Promise<CalDavUser[]> {
   validateInputs(url, username, password);
   if (!searchTerm || searchTerm.trim() === "") {
-    throw new CalDavError("Search term must not be empty.");
+    throw new CalDavError("Suchbegriff darf nicht leer sein.");
   }
 
   try {
@@ -595,7 +595,7 @@ export async function searchUsers(
       throw e;
     }
     throw new CalDavError(
-      "Failed to search users: " +
+      "Fehler bei der Benutzersuche: " +
         (e instanceof Error ? e.message : String(e)),
       e
     );
@@ -669,7 +669,7 @@ export async function fetchWeekEvents(
     } catch (e) {
       if (
         e instanceof CalDavError &&
-        e.message.includes("Access denied")
+        e.message.includes("Zugriff verweigert")
       ) {
         // Fall back to free-busy-query for restricted calendars
         const reportXml = FREE_BUSY_QUERY_XML_TEMPLATE.replace(
@@ -713,7 +713,7 @@ export async function fetchWeekEvents(
       throw e;
     }
     throw new CalDavError(
-      "Failed to fetch events: " +
+      "Fehler beim Abrufen der Termine: " +
         (e instanceof Error ? e.message : String(e)),
       e
     );

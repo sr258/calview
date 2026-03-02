@@ -71,7 +71,7 @@ describe("constants", () => {
   });
 
   it("has correct day short names", () => {
-    expect(DAY_SHORT_NAMES).toEqual(["Mon", "Tue", "Wed", "Thu", "Fri"]);
+    expect(DAY_SHORT_NAMES).toEqual(["Mo", "Di", "Mi", "Do", "Fr"]);
   });
 });
 
@@ -409,7 +409,7 @@ describe("computeUserSlots", () => {
     expect(slots["0-10:00"].cssClass).toBe("schedule-error-cell");
     expect(slots["0-10:00"].busy).toBe(true);
     expect(slots["0-10:00"].label).toBe("?");
-    expect(slots["0-10:00"].tooltip).toBe("Failed to load");
+    expect(slots["0-10:00"].tooltip).toBe("Laden fehlgeschlagen");
   });
 
   it("all-day events fill all slots for that day", () => {
@@ -562,17 +562,17 @@ describe("getMondayOfWeek", () => {
 
 describe("formatWeekLabel", () => {
   it("formats week label correctly", () => {
-    expect(formatWeekLabel("2025-02-10")).toBe("Feb 10 - Feb 14, 2025");
+    expect(formatWeekLabel("2025-02-10")).toBe("10. Feb - 14. Feb 2025");
   });
 
   it("handles month boundary", () => {
-    expect(formatWeekLabel("2025-01-27")).toBe("Jan 27 - Jan 31, 2025");
+    expect(formatWeekLabel("2025-01-27")).toBe("27. Jan - 31. Jan 2025");
   });
 
   it("handles cross-month week", () => {
     // Monday Jan 27 to Friday Jan 31 (stays in January)
     // But Monday Feb 24 to Friday Feb 28
-    expect(formatWeekLabel("2025-02-24")).toBe("Feb 24 - Feb 28, 2025");
+    expect(formatWeekLabel("2025-02-24")).toBe("24. Feb - 28. Feb 2025");
   });
 });
 
@@ -586,8 +586,8 @@ describe("getWeekdayDate", () => {
 
 describe("formatDayHeader", () => {
   it("formats day header correctly", () => {
-    expect(formatDayHeader("2025-02-10", 0)).toBe("Mon Feb 10");
-    expect(formatDayHeader("2025-02-10", 1)).toBe("Tue Feb 11");
-    expect(formatDayHeader("2025-02-10", 4)).toBe("Fri Feb 14");
+    expect(formatDayHeader("2025-02-10", 0)).toBe("Mo 10. Feb");
+    expect(formatDayHeader("2025-02-10", 1)).toBe("Di 11. Feb");
+    expect(formatDayHeader("2025-02-10", 4)).toBe("Fr 14. Feb");
   });
 });

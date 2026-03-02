@@ -48,7 +48,7 @@ export function ScheduleGrid() {
   if (users.length === 0) {
     return (
       <div class="schedule-empty">
-        No users selected. Use the search box above to find and add users.
+        Keine Benutzer ausgewählt. Verwenden Sie die Suchbox oben, um Benutzer zu finden und hinzuzufügen.
       </div>
     );
   }
@@ -87,7 +87,7 @@ function ScheduleHead({ weekStart, timeSlots }: ScheduleHeadProps) {
       {/* Day header row */}
       <tr>
         <th class="schedule-corner-cell" rowSpan={2}>
-          User
+          Benutzer
         </th>
         {Array.from({ length: WEEKDAY_COUNT }, (_, dayIdx) => (
           <th
@@ -167,7 +167,7 @@ function ScheduleRowComponent({
       {/* User name cell (frozen) */}
       <td class="schedule-user-cell-td">
         {isSummaryRow ? (
-          <span class="schedule-summary-cell">All Free</span>
+          <span class="schedule-summary-cell">Alle frei</span>
         ) : (
           <div class="schedule-user-cell">
             {isFailed && (
@@ -176,7 +176,7 @@ function ScheduleRowComponent({
                 viewBox="0 0 24 24"
                 width="16"
                 height="16"
-                title="Failed to load events"
+                title="Termine konnten nicht geladen werden"
               >
                 <path
                   fill="currentColor"
@@ -188,7 +188,7 @@ function ScheduleRowComponent({
             <button
               class="btn-remove-user"
               onClick={() => removeUser(row.user!)}
-              title={`Remove ${row.user!.displayName}`}
+              title={`${row.user!.displayName} entfernen`}
             >
               &times;
             </button>
