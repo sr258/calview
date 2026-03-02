@@ -65,7 +65,7 @@ const DEV_PROXY_PREFIX = "/api/caldav";
  * due to CORS restrictions, so we route through Vite's proxy.
  *
  * Example:
- *   "https://isb-kalender.zit.mwn.de/caldav.php/user/" -> "/api/caldav/user/"
+ *   "https://isb-kalender.zit.mwn.de/caldav.php/user/" -> "/api/caldav/caldav.php/user/"
  */
 function rewriteUrlForProxy(url: string): string {
   try {

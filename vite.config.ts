@@ -7,7 +7,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/api/caldav": {
-        target: "https://isb-kalender.zit.mwn.de/caldav.php",
+        target: "https://isb-kalender.zit.mwn.de",
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path.replace(/^\/api\/caldav/, ""),
