@@ -29,6 +29,7 @@ import {
 } from "../model/schedule.js";
 import { setAcceptInvalidCerts } from "../services/http.js";
 import { clearCredentials, loadCredentials } from "../services/credential-store.js";
+import { loadFavorites, saveFavorites } from "../services/favorites-store.js";
 
 // ─── Signals (Reactive State) ────────────────────────────────────────────────
 // Ported from CalDavView.java instance fields lines 104-128
@@ -103,6 +104,13 @@ export const initializing = signal<boolean>(true);
  */
 export const acceptInvalidCerts = signal<boolean>(false);
 
+/**
+ * 6.10 — Favorited users for the currently connected server.
+ * Loaded from localStorage on connect, cleared (but not deleted) on disconnect.
+ * Each server URL has its own independent favorites list.
+ */
+export const favorites = signal<CalDavUser[]>([]);
+
 // Keep the HTTP layer in sync with the signal value
 effect(() => {
   setAcceptInvalidCerts(acceptInvalidCerts.value);
@@ -152,6 +160,9 @@ export async function connect(
     connection.value = { url, username, password };
     connected.value = true;
     showLoginDialog.value = false;
+
+    // Load favorites for this server
+    favorites.value = loadFavorites(url);
 
     return null; // success
   } catch (e) {
@@ -205,6 +216,26 @@ export function removeUser(user: CalDavUser): void {
   const newFailed = new Set(failedUsers.value);
   newFailed.delete(user.href);
   failedUsers.value = newFailed;
+}
+
+/**
+ * Toggles the favorite status of a user for the currently connected server.
+ * If the user is already a favorite, they are removed; otherwise, they are added.
+ * Changes are persisted to localStorage immediately.
+ */
+export function toggleFavorite(user: CalDavUser): void {
+  if (!connection.value) return;
+
+  const serverUrl = connection.value.url;
+  const isFav = favorites.value.some((u) => u.href === user.href);
+
+  if (isFav) {
+    favorites.value = favorites.value.filter((u) => u.href !== user.href);
+  } else {
+    favorites.value = [...favorites.value, user];
+  }
+
+  saveFavorites(serverUrl, favorites.value);
 }
 
 /**
@@ -264,6 +295,7 @@ export function disconnect(): void {
   selectedUsers.value = [];
   userEvents.value = new Map();
   failedUsers.value = new Set();
+  favorites.value = [];
   showLoginDialog.value = true;
 
   // Clear persisted credentials (fire-and-forget)

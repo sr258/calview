@@ -404,6 +404,19 @@ body {
   background-color: var(--cv-primary-10);
 }
 
+.user-search-item-content {
+  display: flex;
+  align-items: center;
+  gap: var(--cv-space-s);
+}
+
+.user-search-item-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 .user-search-item-name {
   font-size: var(--cv-font-s);
   font-weight: 500;
@@ -413,6 +426,117 @@ body {
 .user-search-item-href {
   font-size: var(--cv-font-xs);
   color: var(--cv-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ─── Favorite Star Button (shared) ─────────────────────────────────────── */
+
+.btn-favorite-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--cv-contrast-20);
+  padding: 2px;
+  border-radius: var(--cv-radius-s);
+  transition: color 0.15s ease, transform 0.1s ease;
+  line-height: 0;
+}
+
+.btn-favorite-star:hover {
+  color: var(--cv-warning);
+  transform: scale(1.15);
+}
+
+.btn-favorite-star.filled {
+  color: var(--cv-warning);
+}
+
+.btn-favorite-star.filled:hover {
+  color: var(--cv-warning-text);
+}
+
+/* ─── Favorites Section ─────────────────────────────────────────────────── */
+
+.favorites-section {
+  padding: 0 var(--cv-space-m) var(--cv-space-xs);
+  flex-shrink: 0;
+}
+
+.favorites-header {
+  display: flex;
+  align-items: center;
+  gap: var(--cv-space-xs);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: var(--cv-space-xxs) 0;
+  color: var(--cv-text-secondary);
+  font-size: var(--cv-font-s);
+  font-weight: 500;
+  font-family: inherit;
+  width: 100%;
+  text-align: left;
+  transition: color 0.15s ease;
+}
+
+.favorites-header:hover {
+  color: var(--cv-text-primary);
+}
+
+.favorites-chevron {
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.favorites-chevron.collapsed {
+  transform: rotate(-90deg);
+}
+
+.favorites-header-label {
+  line-height: 1;
+}
+
+.favorites-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cv-space-xs);
+  padding-top: var(--cv-space-xs);
+}
+
+.favorite-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cv-space-xxs);
+  padding: var(--cv-space-xxs) var(--cv-space-s);
+  background-color: var(--cv-contrast-5);
+  border: 1px solid var(--cv-contrast-10);
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: var(--cv-font-xs);
+  font-family: inherit;
+  color: var(--cv-text-primary);
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.favorite-chip:hover:not(.already-selected) {
+  background-color: var(--cv-primary-10);
+  border-color: var(--cv-primary);
+}
+
+.favorite-chip.already-selected {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.favorite-chip-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

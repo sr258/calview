@@ -17,8 +17,10 @@ import { useState, useRef, useEffect, useCallback } from "preact/hooks";
 import type { CalDavUser } from "../model/types.js";
 import {
   connected,
+  favorites,
   searchUsers,
   addUser,
+  toggleFavorite,
 } from "../state/app-state.js";
 
 const MIN_SEARCH_LENGTH = 2;
@@ -161,17 +163,47 @@ export function UserSearch() {
 
       {showDropdown && results.length > 0 && (
         <ul ref={dropdownRef} class="user-search-dropdown">
-          {results.map((user, idx) => (
-            <li
-              key={user.href}
-              class={`user-search-item${idx === highlightedIndex ? " highlighted" : ""}`}
-              onMouseDown={() => handleSelectUser(user)}
-              onMouseEnter={() => setHighlightedIndex(idx)}
-            >
-              <span class="user-search-item-name">{user.displayName}</span>
-              <span class="user-search-item-href">{user.href}</span>
-            </li>
-          ))}
+          {results.map((user, idx) => {
+            const isFav = favorites.value.some((u) => u.href === user.href);
+            return (
+              <li
+                key={user.href}
+                class={`user-search-item${idx === highlightedIndex ? " highlighted" : ""}`}
+                onMouseDown={() => handleSelectUser(user)}
+                onMouseEnter={() => setHighlightedIndex(idx)}
+              >
+                <div class="user-search-item-content">
+                  <div class="user-search-item-text">
+                    <span class="user-search-item-name">{user.displayName}</span>
+                    <span class="user-search-item-href">{user.href}</span>
+                  </div>
+                  <button
+                    class={`btn-favorite-star${isFav ? " filled" : ""}`}
+                    onMouseDown={(e) => {
+                      e.stopPropagation();
+                      toggleFavorite(user);
+                    }}
+                    title={isFav ? "Favorit entfernen" : "Als Favorit markieren"}
+                    type="button"
+                  >
+                    <svg viewBox="0 0 24 24" width="16" height="16">
+                      {isFav ? (
+                        <path
+                          fill="currentColor"
+                          d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"
+                        />
+                      ) : (
+                        <path
+                          fill="currentColor"
+                          d="M22 9.24l-7.19-.62L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27 18.18 21l-1.64-7.03L22 9.24zM12 15.4l-3.76 2.27 1-4.28-3.32-2.88 4.38-.38L12 6.1l1.71 4.04 4.38.38-3.32 2.88 1 4.28L12 15.4z"
+                        />
+                      )}
+                    </svg>
+                  </button>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

@@ -28,13 +28,15 @@
  * - 720 slot columns at 5px each = 3600px wide + user column
  */
 
-import type { ScheduleRow } from "../model/types.js";
+import type { ScheduleRow, CalDavUser } from "../model/types.js";
 import {
   scheduleRows,
   selectedUsers,
   failedUsers,
+  favorites,
   currentWeekStart,
   removeUser,
+  toggleFavorite,
 } from "../state/app-state.js";
 import {
   generateTimeSlots,
@@ -59,6 +61,7 @@ export function ScheduleGrid() {
   const timeSlots = generateTimeSlots();
   const weekStart = currentWeekStart.value;
   const failed = failedUsers.value;
+  const favs = favorites.value;
 
   return (
     <div class="schedule-scroll-container">
@@ -71,6 +74,7 @@ export function ScheduleGrid() {
           rows={rows}
           timeSlots={timeSlots}
           failedUsers={failed}
+          favorites={favs}
         />
       </table>
     </div>
@@ -132,9 +136,10 @@ interface ScheduleBodyProps {
   rows: ScheduleRow[];
   timeSlots: string[];
   failedUsers: Set<string>;
+  favorites: CalDavUser[];
 }
 
-function ScheduleBody({ rows, timeSlots, failedUsers }: ScheduleBodyProps) {
+function ScheduleBody({ rows, timeSlots, failedUsers, favorites }: ScheduleBodyProps) {
   return (
     <tbody>
       {rows.map((row, rowIdx) => (
@@ -143,6 +148,7 @@ function ScheduleBody({ rows, timeSlots, failedUsers }: ScheduleBodyProps) {
           row={row}
           timeSlots={timeSlots}
           isFailed={row.user !== null && failedUsers.has(row.user.href)}
+          isFavorite={row.user !== null && favorites.some((u) => u.href === row.user!.href)}
           isLastRow={rowIdx === rows.length - 1}
         />
       ))}
@@ -156,6 +162,7 @@ interface ScheduleRowProps {
   row: ScheduleRow;
   timeSlots: string[];
   isFailed: boolean;
+  isFavorite: boolean;
   isLastRow: boolean;
 }
 
@@ -163,6 +170,7 @@ function ScheduleRowComponent({
   row,
   timeSlots,
   isFailed,
+  isFavorite,
   isLastRow,
 }: ScheduleRowProps) {
   const isSummaryRow = row.user === null;
@@ -190,6 +198,29 @@ function ScheduleRowComponent({
                 />
               </svg>
             )}
+            <button
+              class={`btn-favorite-star${isFavorite ? " filled" : ""}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleFavorite(row.user!);
+              }}
+              title={isFavorite ? "Favorit entfernen" : "Als Favorit markieren"}
+              type="button"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14">
+                {isFavorite ? (
+                  <path
+                    fill="currentColor"
+                    d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"
+                  />
+                ) : (
+                  <path
+                    fill="currentColor"
+                    d="M22 9.24l-7.19-.62L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27 18.18 21l-1.64-7.03L22 9.24zM12 15.4l-3.76 2.27 1-4.28-3.32-2.88 4.38-.38L12 6.1l1.71 4.04 4.38.38-3.32 2.88 1 4.28L12 15.4z"
+                  />
+                )}
+              </svg>
+            </button>
             <span class="user-name">{row.user!.displayName}</span>
             <button
               class="btn-remove-user"

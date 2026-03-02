@@ -18,6 +18,7 @@ import { useState, useCallback, useEffect } from "preact/hooks";
 import { Toolbar } from "./components/toolbar.js";
 import { LoginDialog } from "./components/login-dialog.js";
 import { UserSearch } from "./components/user-search.js";
+import { FavoritesList } from "./components/favorites-list.js";
 import { WeekNavigator } from "./components/week-navigator.js";
 import { ScheduleGrid } from "./components/schedule-grid.js";
 import { Notifications, type NotificationVariant } from "./components/notifications.js";
@@ -78,6 +79,7 @@ export function App() {
 
       <div class="app-content">
         <UserSearch />
+        <FavoritesList />
         <WeekNavigator />
         <ScheduleGrid />
       </div>
