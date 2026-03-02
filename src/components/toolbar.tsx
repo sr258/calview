@@ -43,17 +43,18 @@ export function Toolbar() {
         >
           {isConnected ? `Verbunden als ${username}` : "Nicht verbunden"}
         </span>
-        {isConnected && (
+        {isConnected ? (
           <button
             class="btn btn-secondary btn-small"
             onClick={handleDisconnect}
           >
             Trennen
           </button>
+        ) : (
+          <button class="btn btn-primary" onClick={handleConnect}>
+            Verbinden
+          </button>
         )}
-        <button class="btn btn-primary" onClick={handleConnect}>
-          {isConnected ? "Neu verbinden" : "Verbinden"}
-        </button>
       </div>
     </div>
   );
