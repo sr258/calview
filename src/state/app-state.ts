@@ -152,6 +152,8 @@ export async function connect(
   username: string,
   password: string
 ): Promise<string | null> {
+  console.log("[app-state] connect: url=%s, user=%s, acceptInvalidCerts=%s",
+    url, username, acceptInvalidCerts.value);
   loading.value = true;
   try {
     // Test connection with a dummy search (same as Java line 767)
@@ -164,6 +166,7 @@ export async function connect(
     // Load favorites for this server
     favorites.value = loadFavorites(url);
 
+    console.log("[app-state] connect: success");
     return null; // success
   } catch (e) {
     const message =
@@ -172,6 +175,7 @@ export async function connect(
         : e instanceof Error
           ? e.message
           : "Unbekannter Fehler";
+    console.error("[app-state] connect: failed — %s", message, e);
     return message;
   } finally {
     loading.value = false;
@@ -414,29 +418,39 @@ export async function initializeApp(): Promise<
   | { status: "failed"; message: string }
   | { status: "none" }
 > {
+  console.log("[app-state] initializeApp: starting credential check");
   try {
     const saved = await loadCredentials();
 
     if (!saved) {
+      console.log("[app-state] initializeApp: no saved credentials, showing login dialog");
       showLoginDialog.value = true;
       return { status: "none" };
     }
+
+    console.log("[app-state] initializeApp: found saved credentials — url=%s, user=%s, acceptInvalidCerts=%s",
+      saved.url, saved.username, saved.acceptInvalidCerts);
 
     // Attempt auto-connect with saved credentials
     // Restore the acceptInvalidCerts flag BEFORE connecting, so the HTTP
     // layer uses the correct TLS setting for the first request.
     acceptInvalidCerts.value = saved.acceptInvalidCerts ?? false;
+    console.log("[app-state] initializeApp: set acceptInvalidCerts=%s, attempting auto-connect...",
+      acceptInvalidCerts.value);
     const error = await connect(saved.url, saved.username, saved.password);
 
     if (error) {
       // Credentials are stale — clear them and show dialog
+      console.warn("[app-state] initializeApp: auto-connect failed — %s", error);
       await clearCredentials();
       showLoginDialog.value = true;
       return { status: "failed", message: error };
     }
 
+    console.log("[app-state] initializeApp: auto-connect succeeded");
     return { status: "success" };
-  } catch {
+  } catch (e) {
+    console.error("[app-state] initializeApp: unexpected error:", e);
     showLoginDialog.value = true;
     return { status: "none" };
   } finally {

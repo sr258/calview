@@ -66,16 +66,25 @@ export async function saveCredentials(conn: ConnectionInfo): Promise<void> {
   const authHeader = buildBasicAuthHeader(conn.username, conn.password);
 
   const acceptCerts = conn.acceptInvalidCerts ?? false;
+  console.log("[credential-store] saveCredentials: url=%s, user=%s, acceptInvalidCerts=%s, backend=%s",
+    conn.url, conn.username, acceptCerts, isTauri() ? "tauri" : "localStorage");
 
   if (isTauri()) {
-    const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("save_credentials", { url: conn.url, authHeader, acceptInvalidCerts: acceptCerts });
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      await invoke("save_credentials", { url: conn.url, authHeader, acceptInvalidCerts: acceptCerts });
+      console.log("[credential-store] saveCredentials: Tauri invoke succeeded");
+    } catch (e) {
+      console.error("[credential-store] saveCredentials: Tauri invoke failed:", e);
+      throw e;
+    }
   } else {
     try {
       const stored: StoredCredentials = { url: conn.url, authHeader, acceptInvalidCerts: acceptCerts };
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stored));
-    } catch {
-      // localStorage may be unavailable (e.g. private browsing); silently ignore
+      console.log("[credential-store] saveCredentials: localStorage write succeeded");
+    } catch (e) {
+      console.warn("[credential-store] saveCredentials: localStorage write failed:", e);
     }
   }
 }
@@ -85,23 +94,52 @@ export async function saveCredentials(conn: ConnectionInfo): Promise<void> {
  * Returns null if no credentials are stored or if reading fails.
  */
 export async function loadCredentials(): Promise<ConnectionInfo | null> {
+  console.log("[credential-store] loadCredentials: backend=%s", isTauri() ? "tauri" : "localStorage");
+
   if (isTauri()) {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const result = await invoke<StoredCredentials | null>("get_credentials");
-      if (!result) return null;
-      return toConnectionInfo(result);
-    } catch {
+      if (!result) {
+        console.log("[credential-store] loadCredentials: no stored credentials found (Tauri)");
+        return null;
+      }
+      console.log("[credential-store] loadCredentials: loaded from Tauri keychain — url=%s, acceptInvalidCerts=%s",
+        result.url, result.acceptInvalidCerts);
+      const conn = toConnectionInfo(result);
+      if (!conn) {
+        console.warn("[credential-store] loadCredentials: failed to decode authHeader from stored credentials");
+      } else {
+        console.log("[credential-store] loadCredentials: decoded user=%s", conn.username);
+      }
+      return conn;
+    } catch (e) {
+      console.error("[credential-store] loadCredentials: Tauri invoke failed:", e);
       return null;
     }
   } else {
     try {
       const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (!raw) return null;
+      if (!raw) {
+        console.log("[credential-store] loadCredentials: no stored credentials in localStorage");
+        return null;
+      }
       const stored: StoredCredentials = JSON.parse(raw);
-      if (!stored?.url || !stored?.authHeader) return null;
-      return toConnectionInfo(stored);
-    } catch {
+      if (!stored?.url || !stored?.authHeader) {
+        console.warn("[credential-store] loadCredentials: stored data missing url or authHeader:", stored);
+        return null;
+      }
+      console.log("[credential-store] loadCredentials: loaded from localStorage — url=%s, acceptInvalidCerts=%s",
+        stored.url, stored.acceptInvalidCerts);
+      const conn = toConnectionInfo(stored);
+      if (!conn) {
+        console.warn("[credential-store] loadCredentials: failed to decode authHeader from stored credentials");
+      } else {
+        console.log("[credential-store] loadCredentials: decoded user=%s", conn.username);
+      }
+      return conn;
+    } catch (e) {
+      console.error("[credential-store] loadCredentials: failed to read/parse localStorage:", e);
       return null;
     }
   }
@@ -111,18 +149,22 @@ export async function loadCredentials(): Promise<ConnectionInfo | null> {
  * Delete stored credentials from persistent storage.
  */
 export async function clearCredentials(): Promise<void> {
+  console.log("[credential-store] clearCredentials: backend=%s", isTauri() ? "tauri" : "localStorage");
+
   if (isTauri()) {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       await invoke("delete_credentials");
-    } catch {
-      // Ignore errors (e.g. no entry to delete)
+      console.log("[credential-store] clearCredentials: Tauri delete succeeded");
+    } catch (e) {
+      console.warn("[credential-store] clearCredentials: Tauri delete failed:", e);
     }
   } else {
     try {
       localStorage.removeItem(LOCAL_STORAGE_KEY);
-    } catch {
-      // silently ignore
+      console.log("[credential-store] clearCredentials: localStorage removed");
+    } catch (e) {
+      console.warn("[credential-store] clearCredentials: localStorage remove failed:", e);
     }
   }
 }

@@ -17,6 +17,7 @@ let _acceptInvalidCerts = false;
 
 /** Enable or disable acceptance of invalid TLS certificates. */
 export function setAcceptInvalidCerts(value: boolean): void {
+  console.log("[http] setAcceptInvalidCerts: %s -> %s", _acceptInvalidCerts, value);
   _acceptInvalidCerts = value;
 }
 
@@ -88,10 +89,19 @@ function rewriteUrlForProxy(url: string): string {
 export async function httpRequest(
   options: HttpRequestOptions
 ): Promise<HttpResponse> {
-  if (isTauri()) {
-    return tauriFetch(options);
+  console.log("[http] httpRequest: %s %s (backend=%s, acceptInvalidCerts=%s)",
+    options.method, options.url, isTauri() ? "tauri" : "browser", _acceptInvalidCerts);
+  try {
+    const response = isTauri()
+      ? await tauriFetch(options)
+      : await browserFetch(options);
+    console.log("[http] httpRequest: %s %s -> status %d",
+      options.method, options.url, response.status);
+    return response;
+  } catch (e) {
+    console.error("[http] httpRequest: %s %s -> FAILED:", options.method, options.url, e);
+    throw e;
   }
-  return browserFetch(options);
 }
 
 /**

@@ -84,17 +84,23 @@ export function LoginDialog({ onNotification }: LoginDialogProps) {
       return;
     }
 
+    console.log("[login-dialog] handleConnect: url=%s, user=%s, acceptInvalidCerts=%s, rememberMe=%s",
+      url.trim(), username.trim(), acceptInvalidCerts.value, rememberMe);
+
     setConnecting(true);
     const error = await connect(url.trim(), username.trim(), password);
     setConnecting(false);
 
     if (error) {
+      console.error("[login-dialog] handleConnect: connect failed — %s", error);
       onNotification?.(error, "error");
     } else {
       // Persist or clear credentials based on checkbox
       if (rememberMe) {
+        console.log("[login-dialog] handleConnect: saving credentials (rememberMe=true)");
         await saveCredentials({ url: url.trim(), username: username.trim(), password, acceptInvalidCerts: acceptInvalidCerts.value });
       } else {
+        console.log("[login-dialog] handleConnect: clearing credentials (rememberMe=false)");
         await clearCredentials();
       }
       onNotification?.(
