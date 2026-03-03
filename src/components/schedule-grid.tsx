@@ -44,6 +44,9 @@ import {
   formatTimeForDisplay,
   computeMergedCells,
   WEEKDAY_COUNT,
+  SLOT_MINUTES,
+  SLOT_WIDTH_PX,
+  USER_COL_WIDTH_PX,
 } from "../model/schedule.js";
 
 export function ScheduleGrid() {
@@ -62,10 +65,12 @@ export function ScheduleGrid() {
   const weekStart = currentWeekStart.value;
   const failed = failedUsers.value;
   const favs = favorites.value;
+  const totalSlotCols = timeSlots.length * WEEKDAY_COUNT;
+  const tableWidth = USER_COL_WIDTH_PX + totalSlotCols * SLOT_WIDTH_PX;
 
   return (
     <div class="schedule-scroll-container">
-      <table class="schedule-table">
+      <table class="schedule-table" style={{ width: `${tableWidth}px` }}>
         <ScheduleHead
           weekStart={weekStart}
           timeSlots={timeSlots}
@@ -107,24 +112,25 @@ function ScheduleHead({ weekStart, timeSlots }: ScheduleHeadProps) {
         ))}
       </tr>
 
-      {/* Time header row */}
+      {/* Time header row: one <th> per hour with colspan */}
       <tr>
-        {Array.from({ length: WEEKDAY_COUNT }, (_, dayIdx) =>
-          timeSlots.map((time, slotIdx) => {
-            const isFullHour = time.endsWith(":00");
-            const isFirstSlotOfDay = slotIdx === 0;
-            const isLastSlotOfDay = slotIdx === timeSlots.length - 1;
-            const nextIsFullHour = !isLastSlotOfDay && timeSlots[slotIdx + 1].endsWith(":00");
+        {Array.from({ length: WEEKDAY_COUNT }, (_, dayIdx) => {
+          const slotsPerHour = 60 / SLOT_MINUTES;
+          const hourCount = timeSlots.length / slotsPerHour;
+          return Array.from({ length: hourCount }, (_, hourIdx) => {
+            const slotIdx = hourIdx * slotsPerHour;
+            const time = timeSlots[slotIdx];
             return (
               <th
                 key={`${dayIdx}-${time}`}
-                class={`schedule-time-header${isFirstSlotOfDay && dayIdx > 0 ? " day-separator" : ""}${nextIsFullHour || isLastSlotOfDay ? " hour-separator" : ""}`}
+                class={`schedule-time-header${slotIdx === 0 && dayIdx > 0 ? " day-separator" : ""}`}
+                colSpan={slotsPerHour}
               >
-                {isFullHour ? formatTimeForDisplay(time) : ""}
+                {formatTimeForDisplay(time)}
               </th>
             );
-          })
-        )}
+          });
+        })}
       </tr>
     </thead>
   );
@@ -241,7 +247,9 @@ function ScheduleRowComponent({
           class={`schedule-cell${cell.slot.cssClass ? ` ${cell.slot.cssClass}` : ""}${cell.isFirstSlotOfDay && cell.dayIdx > 0 ? " day-separator" : ""}${cell.endsAtFullHour ? " hour-separator" : ""}`}
           title={cell.slot.tooltip ?? undefined}
         >
-          {cell.slot.label ?? ""}
+          {cell.slot.label ? (
+            <div class="schedule-cell-label">{cell.slot.label}</div>
+          ) : null}
         </td>
       ))}
     </tr>

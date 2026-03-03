@@ -57,7 +57,7 @@
   white-space: nowrap;
 }
 
-/* Time header row: e.g. "7:00", "8:00" */
+/* Time header row: e.g. "7:00", "8:00" — one cell per hour (colspan) */
 .schedule-time-header {
   background-color: var(--cv-surface);
   padding: 2px 0;
@@ -66,11 +66,8 @@
   color: var(--cv-text-secondary);
   text-align: left;
   border-bottom: 2px solid var(--cv-contrast-20);
-  min-width: 5px;
-  width: 5px;
+  border-right: 1px solid var(--cv-contrast-10);
   white-space: nowrap;
-  overflow: visible;
-  position: relative;
 }
 
 /* Day separator: thicker left border on first slot of each day (except first) */
@@ -152,15 +149,21 @@
   width: 5px;
   height: 28px;
   min-height: 28px;
-  padding: 0 1px;
+  padding: 0;
   text-align: center;
   vertical-align: middle;
   font-size: var(--cv-font-xxs);
   cursor: default;
   border-bottom: 1px solid var(--cv-contrast-10);
+  white-space: nowrap;
+}
+
+/* Inner label wrapper: reliably clips text content (overflow on <td> is unreliable) */
+.schedule-cell-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  width: 100%;
 }
 
 /* Hour separator: right border on cells whose right edge aligns with a full hour */
@@ -174,28 +177,28 @@
 /* Busy: accessible calendar with full details (blue) */
 .slot-busy {
   background-color: var(--cv-primary-10);
-  border-left: 3px solid var(--cv-primary);
+  box-shadow: inset 3px 0 0 var(--cv-primary);
   color: var(--cv-primary-text);
 }
 
 /* Busy: free-busy only, no details available (orange) */
 .slot-busy-fb {
   background-color: color-mix(in srgb, var(--cv-warning) 15%, transparent);
-  border-left: 3px solid var(--cv-warning);
+  box-shadow: inset 3px 0 0 var(--cv-warning);
   color: var(--cv-warning-text);
 }
 
 /* Busy-Tentative (yellow, lighter) */
 .slot-busy-tentative {
   background-color: color-mix(in srgb, var(--cv-warning) 8%, transparent);
-  border-left: 3px solid color-mix(in srgb, var(--cv-warning) 60%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--cv-warning) 60%, transparent);
   color: var(--cv-warning-text);
 }
 
 /* Busy-Unavailable (red) */
 .slot-busy-unavailable {
   background-color: var(--cv-error-10);
-  border-left: 3px solid var(--cv-error);
+  box-shadow: inset 3px 0 0 var(--cv-error);
   color: var(--cv-error-text);
 }
 

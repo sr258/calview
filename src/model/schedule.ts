@@ -23,6 +23,12 @@ export const SCHEDULE_END = "19:00";
 /** Duration of each time slot in minutes. */
 export const SLOT_MINUTES = 5;
 
+/** Width of each slot column in pixels. */
+export const SLOT_WIDTH_PX = 5;
+
+/** Width of the user name column in pixels. */
+export const USER_COL_WIDTH_PX = 160;
+
 /**
  * Weekday indices (0 = Monday, 4 = Friday).
  * Matches Java's DayOfWeek.MONDAY(0) through DayOfWeek.FRIDAY(4)
