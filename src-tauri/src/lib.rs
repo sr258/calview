@@ -11,7 +11,7 @@ struct StoredCredentials {
 }
 
 /// Save CalDAV credentials to the OS keychain.
-#[tauri::command]
+#[tauri::command(rename_all = "camelCase")]
 fn save_credentials(url: String, auth_header: String) -> Result<(), String> {
     let creds = StoredCredentials { url, auth_header };
     let json = serde_json::to_string(&creds).map_err(|e| e.to_string())?;
