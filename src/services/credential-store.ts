@@ -55,7 +55,7 @@ function toConnectionInfo(stored: StoredCredentials): ConnectionInfo | null {
     url: stored.url,
     username: decoded.username,
     password: decoded.password,
-    acceptInvalidCerts: stored.acceptInvalidCerts,
+    acceptInvalidCerts: stored.acceptInvalidCerts ?? false,
   };
 }
 
@@ -65,12 +65,14 @@ function toConnectionInfo(stored: StoredCredentials): ConnectionInfo | null {
 export async function saveCredentials(conn: ConnectionInfo): Promise<void> {
   const authHeader = buildBasicAuthHeader(conn.username, conn.password);
 
+  const acceptCerts = conn.acceptInvalidCerts ?? false;
+
   if (isTauri()) {
     const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("save_credentials", { url: conn.url, authHeader });
+    await invoke("save_credentials", { url: conn.url, authHeader, acceptInvalidCerts: acceptCerts });
   } else {
     try {
-      const stored: StoredCredentials = { url: conn.url, authHeader };
+      const stored: StoredCredentials = { url: conn.url, authHeader, acceptInvalidCerts: acceptCerts };
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stored));
     } catch {
       // localStorage may be unavailable (e.g. private browsing); silently ignore

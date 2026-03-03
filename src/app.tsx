@@ -60,7 +60,7 @@ export function App() {
         );
       } else if (result.status === "failed") {
         showNotification(
-          "Gespeicherte Anmeldedaten ungültig. Bitte erneut anmelden.",
+          `Automatische Anmeldung fehlgeschlagen: ${result.message}`,
           "warning"
         );
       }

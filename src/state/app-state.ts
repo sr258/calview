@@ -423,6 +423,9 @@ export async function initializeApp(): Promise<
     }
 
     // Attempt auto-connect with saved credentials
+    // Restore the acceptInvalidCerts flag BEFORE connecting, so the HTTP
+    // layer uses the correct TLS setting for the first request.
+    acceptInvalidCerts.value = saved.acceptInvalidCerts ?? false;
     const error = await connect(saved.url, saved.username, saved.password);
 
     if (error) {

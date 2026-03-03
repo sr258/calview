@@ -93,7 +93,7 @@ export function LoginDialog({ onNotification }: LoginDialogProps) {
     } else {
       // Persist or clear credentials based on checkbox
       if (rememberMe) {
-        await saveCredentials({ url: url.trim(), username: username.trim(), password });
+        await saveCredentials({ url: url.trim(), username: username.trim(), password, acceptInvalidCerts: acceptInvalidCerts.value });
       } else {
         await clearCredentials();
       }
