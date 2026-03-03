@@ -20,6 +20,7 @@ const LOCAL_STORAGE_KEY = "calview_credentials";
 interface StoredCredentials {
   url: string;
   authHeader: string;
+  acceptInvalidCerts: boolean;
 }
 
 /**
@@ -50,7 +51,12 @@ function decodeBasicAuth(authHeader: string): { username: string; password: stri
 function toConnectionInfo(stored: StoredCredentials): ConnectionInfo | null {
   const decoded = decodeBasicAuth(stored.authHeader);
   if (!decoded) return null;
-  return { url: stored.url, username: decoded.username, password: decoded.password };
+  return {
+    url: stored.url,
+    username: decoded.username,
+    password: decoded.password,
+    acceptInvalidCerts: stored.acceptInvalidCerts,
+  };
 }
 
 /**

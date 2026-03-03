@@ -84,6 +84,7 @@ export interface ConnectionInfo {
   url: string;
   username: string;
   password: string;
+  acceptInvalidCerts?: boolean;
 }
 
 /**

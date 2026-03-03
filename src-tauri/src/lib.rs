@@ -8,12 +8,22 @@ struct StoredCredentials {
     url: String,
     #[serde(rename = "authHeader")]
     auth_header: String,
+    #[serde(rename = "acceptInvalidCerts", default)]
+    accept_invalid_certs: bool,
 }
 
 /// Save CalDAV credentials to the OS keychain.
-#[tauri::command(rename_all = "camelCase")]
-fn save_credentials(url: String, auth_header: String) -> Result<(), String> {
-    let creds = StoredCredentials { url, auth_header };
+#[tauri::command]
+fn save_credentials(
+    url: String,
+    auth_header: String,
+    accept_invalid_certs: bool,
+) -> Result<(), String> {
+    let creds = StoredCredentials {
+        url,
+        auth_header,
+        accept_invalid_certs,
+    };
     let json = serde_json::to_string(&creds).map_err(|e| e.to_string())?;
 
     let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|e| e.to_string())?;
