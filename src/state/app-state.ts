@@ -111,6 +111,15 @@ export const acceptInvalidCerts = signal<boolean>(false);
  */
 export const favorites = signal<CalDavUser[]>([]);
 
+/**
+ * 6.11 — Which view is active: "table" (the original schedule grid) or
+ * "calendar" (the classic vertical-time-axis calendar view).
+ */
+export type ViewMode = "table" | "calendar";
+export const activeView = signal<ViewMode>(
+  (localStorage.getItem("cv-active-view") as ViewMode) || "table"
+);
+
 // Keep the HTTP layer in sync with the signal value
 effect(() => {
   setAcceptInvalidCerts(acceptInvalidCerts.value);
@@ -336,6 +345,14 @@ export async function searchUsers(
   } catch {
     return [];
   }
+}
+
+/**
+ * Switches between the table and calendar views and persists the choice.
+ */
+export function setView(view: ViewMode): void {
+  activeView.value = view;
+  localStorage.setItem("cv-active-view", view);
 }
 
 // ─── Internal helpers ────────────────────────────────────────────────────────

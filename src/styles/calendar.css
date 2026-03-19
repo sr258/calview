@@ -1,0 +1,212 @@
+/* ============================================================
+   CalView — Calendar View Styles
+   Classic vertical-time-axis weekly calendar layout.
+   ============================================================ */
+
+/* ─── Root Container ────────────────────────────────────────────────────── */
+
+.cal-view {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─── User Legend ────────────────────────────────────────────────────────── */
+
+.cal-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cv-space-xs) var(--cv-space-m);
+  padding: var(--cv-space-xs) var(--cv-space-m);
+  border-bottom: 1px solid var(--cv-contrast-10);
+  background-color: var(--cv-surface);
+  flex-shrink: 0;
+}
+
+.cal-legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--cv-space-xs);
+  font-size: var(--cv-font-s);
+  white-space: nowrap;
+}
+
+.cal-legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.cal-legend-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+/* ─── Grid Wrapper (time gutter + day columns) ──────────────────────────── */
+
+.cal-grid-wrapper {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ─── Time Gutter ───────────────────────────────────────────────────────── */
+
+.cal-time-gutter {
+  flex-shrink: 0;
+  width: 52px;
+  background-color: var(--cv-surface);
+  border-right: 1px solid var(--cv-contrast-10);
+  /* Offset for the day header row height */
+  padding-top: 36px;
+}
+
+.cal-time-label {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding-right: var(--cv-space-xs);
+  font-size: var(--cv-font-xs);
+  color: var(--cv-text-secondary);
+  /* Shift text up so it aligns with the grid line */
+  transform: translateY(-0.5em);
+  user-select: none;
+}
+
+/* ─── Day Columns ───────────────────────────────────────────────────────── */
+
+.cal-days {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.cal-day-column {
+  flex: 1;
+  min-width: 0;
+  border-right: 1px solid var(--cv-contrast-10);
+  display: flex;
+  flex-direction: column;
+}
+
+.cal-day-column:last-child {
+  border-right: none;
+}
+
+/* Day header (e.g. "Mo 10. Feb") */
+.cal-day-header {
+  text-align: center;
+  font-weight: 600;
+  font-size: var(--cv-font-s);
+  padding: var(--cv-space-xs) var(--cv-space-xs);
+  border-bottom: 2px solid var(--cv-contrast-20);
+  background-color: var(--cv-surface);
+  flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Day body: positioned container for events */
+.cal-day-body {
+  position: relative;
+  flex: 1;
+}
+
+/* ─── Hour / Half-Hour Grid Lines ───────────────────────────────────────── */
+
+.cal-hour-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px solid var(--cv-contrast-10);
+  pointer-events: none;
+}
+
+.cal-half-hour-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed var(--cv-contrast-5);
+  pointer-events: none;
+}
+
+/* ─── Event Blocks ──────────────────────────────────────────────────────── */
+
+.cal-event {
+  position: absolute;
+  /* left, width, top, height set inline */
+  border-radius: 3px;
+  border-left: 3px solid var(--cal-event-color, var(--cv-primary));
+  overflow: hidden;
+  cursor: default;
+  z-index: 1;
+  transition: box-shadow 0.1s ease;
+  /* Tiny gap so stacked events don't visually merge */
+  margin: 0 1px 1px 0;
+}
+
+.cal-event:hover {
+  z-index: 2;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
+.cal-event-inner {
+  padding: 2px 4px;
+  overflow: hidden;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.cal-event-time {
+  font-size: var(--cv-font-xxs);
+  color: var(--cv-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cal-event-label {
+  font-size: var(--cv-font-xs);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cal-event-user {
+  font-size: var(--cv-font-xxs);
+  color: var(--cv-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Reuse the schedule slot status classes for background colors.
+   They're already defined in schedule.css so no need to repeat.
+   The .cal-event inherits them via the shared class. */
+
+/* ─── Failed Day Overlay ────────────────────────────────────────────────── */
+
+.cal-day-error {
+  position: absolute;
+  top: var(--cv-space-xs);
+  right: var(--cv-space-xs);
+  font-size: var(--cv-font-m);
+  color: var(--cv-error-text);
+  z-index: 3;
+  cursor: help;
+}

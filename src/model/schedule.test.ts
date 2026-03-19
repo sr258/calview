@@ -44,6 +44,11 @@ import {
   formatWeekLabel,
   getWeekdayDate,
   formatDayHeader,
+  layoutOverlappingEvents,
+  buildPositionedEventsForDay,
+  generateHourLabels,
+  timeToPixels,
+  HOUR_HEIGHT_PX,
 } from "./schedule.js";
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
@@ -811,5 +816,199 @@ describe("formatDayHeader", () => {
     expect(formatDayHeader("2025-02-10", 0)).toBe("Mo 10. Feb");
     expect(formatDayHeader("2025-02-10", 1)).toBe("Di 11. Feb");
     expect(formatDayHeader("2025-02-10", 4)).toBe("Fr 14. Feb");
+  });
+});
+
+// ─── Calendar View: Overlap Layout Tests ─────────────────────────────────────
+
+describe("generateHourLabels", () => {
+  it("returns labels from 7:00 to 18:00", () => {
+    const labels = generateHourLabels();
+    expect(labels).toHaveLength(12);
+    expect(labels[0]).toBe("7:00");
+    expect(labels[11]).toBe("18:00");
+  });
+});
+
+describe("timeToPixels", () => {
+  it("returns 0 for 07:00 (start of schedule)", () => {
+    expect(timeToPixels("07:00")).toBe(0);
+  });
+
+  it("returns correct offset for 08:00", () => {
+    expect(timeToPixels("08:00")).toBe(HOUR_HEIGHT_PX);
+  });
+
+  it("returns correct offset for 12:30", () => {
+    // 5.5 hours from 07:00
+    expect(timeToPixels("12:30")).toBe(5.5 * HOUR_HEIGHT_PX);
+  });
+
+  it("clamps times before 07:00 to 0", () => {
+    expect(timeToPixels("06:00")).toBe(0);
+  });
+
+  it("clamps times after 19:00 to the grid height", () => {
+    expect(timeToPixels("20:00")).toBe(12 * HOUR_HEIGHT_PX);
+  });
+});
+
+describe("layoutOverlappingEvents", () => {
+  const userA: CalDavUser = { displayName: "Alice", href: "/alice" };
+  const userB: CalDavUser = { displayName: "Bob", href: "/bob" };
+
+  it("returns empty for no events", () => {
+    const result = layoutOverlappingEvents([]);
+    expect(result.entries).toHaveLength(0);
+    expect(result.totalColumns).toBe(0);
+  });
+
+  it("places a single event in column 0", () => {
+    const result = layoutOverlappingEvents([
+      {
+        event: makeEvent({ startTime: "09:00", endTime: "10:00" }),
+        user: userA,
+        userIndex: 0,
+      },
+    ]);
+    expect(result.entries).toHaveLength(1);
+    expect(result.totalColumns).toBe(1);
+    expect(result.entries[0].col).toBe(0);
+  });
+
+  it("places non-overlapping events in the same column", () => {
+    const result = layoutOverlappingEvents([
+      {
+        event: makeEvent({ startTime: "09:00", endTime: "10:00" }),
+        user: userA,
+        userIndex: 0,
+      },
+      {
+        event: makeEvent({ startTime: "10:00", endTime: "11:00" }),
+        user: userB,
+        userIndex: 1,
+      },
+    ]);
+    expect(result.totalColumns).toBe(1);
+    expect(result.entries[0].col).toBe(0);
+    expect(result.entries[1].col).toBe(0);
+  });
+
+  it("places overlapping events in different columns", () => {
+    const result = layoutOverlappingEvents([
+      {
+        event: makeEvent({ startTime: "09:00", endTime: "10:30" }),
+        user: userA,
+        userIndex: 0,
+      },
+      {
+        event: makeEvent({ startTime: "10:00", endTime: "11:00" }),
+        user: userB,
+        userIndex: 1,
+      },
+    ]);
+    expect(result.totalColumns).toBe(2);
+    // Different columns
+    expect(result.entries[0].col).not.toBe(result.entries[1].col);
+  });
+
+  it("handles three overlapping events in three columns", () => {
+    const result = layoutOverlappingEvents([
+      {
+        event: makeEvent({ startTime: "09:00", endTime: "11:00" }),
+        user: userA,
+        userIndex: 0,
+      },
+      {
+        event: makeEvent({ startTime: "09:30", endTime: "10:30" }),
+        user: userA,
+        userIndex: 0,
+      },
+      {
+        event: makeEvent({ startTime: "10:00", endTime: "10:45" }),
+        user: userB,
+        userIndex: 1,
+      },
+    ]);
+    expect(result.totalColumns).toBe(3);
+    const cols = result.entries.map((e) => e.col);
+    // All unique columns
+    expect(new Set(cols).size).toBe(3);
+  });
+
+  it("reuses columns once events end", () => {
+    const result = layoutOverlappingEvents([
+      {
+        event: makeEvent({ startTime: "09:00", endTime: "10:00" }),
+        user: userA,
+        userIndex: 0,
+      },
+      {
+        event: makeEvent({ startTime: "09:00", endTime: "10:00" }),
+        user: userB,
+        userIndex: 1,
+      },
+      {
+        // Starts after both end — should reuse column 0
+        event: makeEvent({ startTime: "10:00", endTime: "11:00" }),
+        user: userA,
+        userIndex: 0,
+      },
+    ]);
+    expect(result.totalColumns).toBe(2);
+    // The third event should reuse column 0
+    const sorted = [...result.entries].sort((a, b) => a.startMin - b.startMin || a.col - b.col);
+    expect(sorted[2].col).toBe(0);
+  });
+
+  it("handles all-day events (null times)", () => {
+    const result = layoutOverlappingEvents([
+      {
+        event: makeEvent({ startTime: null, endTime: null }),
+        user: userA,
+        userIndex: 0,
+      },
+      {
+        event: makeEvent({ startTime: "09:00", endTime: "10:00" }),
+        user: userB,
+        userIndex: 1,
+      },
+    ]);
+    expect(result.totalColumns).toBe(2);
+  });
+});
+
+describe("buildPositionedEventsForDay", () => {
+  const userA: CalDavUser = { displayName: "Alice", href: "/alice" };
+
+  it("returns empty array when no events for the day", () => {
+    const events = new Map<string, CalDavEvent[]>();
+    events.set("/alice", []);
+    const result = buildPositionedEventsForDay([userA], events, "2025-02-10");
+    expect(result).toHaveLength(0);
+  });
+
+  it("positions a single event correctly", () => {
+    const events = new Map<string, CalDavEvent[]>();
+    events.set("/alice", [
+      makeEvent({ date: "2025-02-10", startTime: "09:00", endTime: "10:00" }),
+    ]);
+    const result = buildPositionedEventsForDay([userA], events, "2025-02-10");
+    expect(result).toHaveLength(1);
+    expect(result[0].top).toBe(2 * HOUR_HEIGHT_PX); // 09:00 is 2 hours from 07:00
+    expect(result[0].height).toBe(HOUR_HEIGHT_PX);   // 1 hour
+    expect(result[0].left).toBe(0);
+    expect(result[0].width).toBe(1);
+    expect(result[0].userIndex).toBe(0);
+    expect(result[0].user).toBe(userA);
+  });
+
+  it("ignores events for different days", () => {
+    const events = new Map<string, CalDavEvent[]>();
+    events.set("/alice", [
+      makeEvent({ date: "2025-02-11", startTime: "09:00", endTime: "10:00" }),
+    ]);
+    const result = buildPositionedEventsForDay([userA], events, "2025-02-10");
+    expect(result).toHaveLength(0);
   });
 });

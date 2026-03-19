@@ -544,14 +544,20 @@ body {
 
 /* ─── Week Navigator ────────────────────────────────────────────────────── */
 
+.week-nav-row {
+  display: flex;
+  align-items: center;
+  background-color: var(--cv-contrast-5);
+  border-bottom: 1px solid var(--cv-contrast-10);
+  flex-shrink: 0;
+}
+
 .week-nav {
   display: flex;
   align-items: center;
   gap: var(--cv-space-s);
   padding: var(--cv-space-xs) var(--cv-space-m);
-  background-color: var(--cv-contrast-5);
-  border-bottom: 1px solid var(--cv-contrast-10);
-  flex-shrink: 0;
+  flex: 1;
 }
 
 .week-label {
@@ -559,6 +565,43 @@ body {
   font-size: var(--cv-font-m);
   min-width: 200px;
   text-align: center;
+}
+
+/* ─── View Switcher ─────────────────────────────────────────────────────── */
+
+.view-switcher {
+  display: flex;
+  margin-right: var(--cv-space-m);
+  border: 1px solid var(--cv-contrast-20);
+  border-radius: var(--cv-radius-s);
+  overflow: hidden;
+}
+
+.view-switcher-btn {
+  background: var(--cv-surface);
+  border: none;
+  padding: 0.3em 0.8em;
+  font-size: var(--cv-font-xs);
+  font-family: inherit;
+  font-weight: 500;
+  color: var(--cv-text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  white-space: nowrap;
+}
+
+.view-switcher-btn:not(:last-child) {
+  border-right: 1px solid var(--cv-contrast-20);
+}
+
+.view-switcher-btn:hover:not(.active) {
+  background-color: var(--cv-contrast-5);
+  color: var(--cv-text-primary);
+}
+
+.view-switcher-btn.active {
+  background-color: var(--cv-primary);
+  color: #ffffff;
 }
 
 /* ─── Toast Notifications ───────────────────────────────────────────────── */

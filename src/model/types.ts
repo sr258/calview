@@ -118,3 +118,27 @@ export class CalDavError extends Error {
     this.name = "CalDavError";
   }
 }
+
+// ─── Calendar View Types ───────────────────────────────────────────────────
+
+/**
+ * An event positioned for the classic calendar view.
+ * Contains pixel-level layout information for absolute positioning
+ * within a day column.
+ */
+export interface PositionedEvent {
+  /** The original event data. */
+  event: CalDavEvent;
+  /** The user who owns this event. */
+  user: CalDavUser;
+  /** Index of the user in selectedUsers (for color assignment). */
+  userIndex: number;
+  /** Top offset in pixels from the grid start (07:00). */
+  top: number;
+  /** Height in pixels. */
+  height: number;
+  /** Fraction (0..1) — left offset within the day column. */
+  left: number;
+  /** Fraction (0..1) — width within the day column. */
+  width: number;
+}

@@ -9,7 +9,7 @@
  * side effects. This makes them easy to test and reason about.
  */
 
-import type { CalDavUser, CalDavEvent, SlotInfo, ScheduleRow, MergedCell } from "./types.js";
+import type { CalDavUser, CalDavEvent, SlotInfo, ScheduleRow, MergedCell, PositionedEvent } from "./types.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 // Ported from CalDavView.java lines 69-84
@@ -666,4 +666,167 @@ export function formatDayHeader(weekStart: string, dayIdx: number): string {
   ];
 
   return `${DAY_SHORT_NAMES[dayIdx]} ${date.getUTCDate()}. ${monthNames[date.getUTCMonth()]}`;
+}
+
+// ─── Calendar View: Overlap / Stacking Layout ────────────────────────────────
+
+/** Height in pixels per hour in the calendar view. */
+export const HOUR_HEIGHT_PX = 60;
+
+/** Total number of hours displayed (07:00 to 19:00). */
+const SCHEDULE_HOURS = 12;
+
+/** Total grid height in px for the time area. */
+export const CALENDAR_GRID_HEIGHT = HOUR_HEIGHT_PX * SCHEDULE_HOURS;
+
+/** Start of the schedule as minutes since midnight. */
+const SCHEDULE_START_MINUTES = 7 * 60;
+
+/** End of the schedule as minutes since midnight. */
+const SCHEDULE_END_MINUTES = 19 * 60;
+
+/**
+ * Converts a "HH:mm" time string to a pixel offset from the top of the
+ * calendar grid, clamping to the visible range [07:00, 19:00].
+ */
+export function timeToPixels(time: string): number {
+  const minutes = parseTimeToMinutes(time);
+  const clamped = Math.max(SCHEDULE_START_MINUTES, Math.min(minutes, SCHEDULE_END_MINUTES));
+  return ((clamped - SCHEDULE_START_MINUTES) / 60) * HOUR_HEIGHT_PX;
+}
+
+/**
+ * Represents a single event with its resolved start/end minute offsets
+ * (relative to SCHEDULE_START) and an assigned layout column.
+ */
+interface LayoutEntry {
+  event: CalDavEvent;
+  user: CalDavUser;
+  userIndex: number;
+  startMin: number; // minutes from SCHEDULE_START
+  endMin: number;
+  col: number;      // assigned column within its overlap group
+}
+
+/**
+ * Assigns non-overlapping column indices to a list of events that
+ * may overlap each other (classic "event packing" algorithm).
+ *
+ * 1. Sort by start time, then by duration descending.
+ * 2. Greedily assign each event to the first column where it doesn't
+ *    overlap any previously placed event.
+ *
+ * Returns a list of `LayoutEntry` objects with `col` filled in,
+ * plus the total number of columns used (`maxCol + 1`).
+ */
+export function layoutOverlappingEvents(
+  events: { event: CalDavEvent; user: CalDavUser; userIndex: number }[]
+): { entries: LayoutEntry[]; totalColumns: number } {
+  if (events.length === 0) {
+    return { entries: [], totalColumns: 0 };
+  }
+
+  // Convert to layout entries with resolved minutes
+  const entries: LayoutEntry[] = events.map((e) => {
+    const startMin = e.event.startTime
+      ? Math.max(0, parseTimeToMinutes(e.event.startTime) - SCHEDULE_START_MINUTES)
+      : 0;
+    const endMin = e.event.endTime
+      ? Math.min(SCHEDULE_END_MINUTES - SCHEDULE_START_MINUTES, parseTimeToMinutes(e.event.endTime) - SCHEDULE_START_MINUTES)
+      : SCHEDULE_END_MINUTES - SCHEDULE_START_MINUTES;
+    return { ...e, startMin, endMin: Math.max(endMin, startMin + 5), col: 0 };
+  });
+
+  // Sort by start time ascending, then by duration descending (longer events first)
+  entries.sort((a, b) => {
+    if (a.startMin !== b.startMin) return a.startMin - b.startMin;
+    return (b.endMin - b.startMin) - (a.endMin - a.startMin);
+  });
+
+  // Greedy column assignment
+  // columns[c] = end minute of the last event placed in column c
+  const columns: number[] = [];
+
+  for (const entry of entries) {
+    let placed = false;
+    for (let c = 0; c < columns.length; c++) {
+      if (columns[c] <= entry.startMin) {
+        entry.col = c;
+        columns[c] = entry.endMin;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      entry.col = columns.length;
+      columns.push(entry.endMin);
+    }
+  }
+
+  return { entries, totalColumns: columns.length };
+}
+
+/**
+ * Builds `PositionedEvent[]` for a single day in the calendar view.
+ *
+ * For each selected user, collects their events on the given day,
+ * runs the overlap layout algorithm, and computes pixel coordinates
+ * for absolute positioning within the day column.
+ *
+ * @param users         ordered list of selected users
+ * @param userEvents    map of user href → events for the week
+ * @param dayDate       ISO date string "YYYY-MM-DD" for this day
+ * @returns array of events with layout positions
+ */
+export function buildPositionedEventsForDay(
+  users: CalDavUser[],
+  userEvents: Map<string, CalDavEvent[]>,
+  dayDate: string
+): PositionedEvent[] {
+  // Collect all events across all users for this day
+  const allEvents: { event: CalDavEvent; user: CalDavUser; userIndex: number }[] = [];
+
+  for (let i = 0; i < users.length; i++) {
+    const user = users[i];
+    const events = userEvents.get(user.href) ?? [];
+    const dayEvents = filterEventsForDay(events, dayDate);
+    for (const event of dayEvents) {
+      // Skip events without times (all-day) for now — they'd go in a
+      // separate header row. We still include them but render them as
+      // spanning the full day.
+      allEvents.push({ event, user, userIndex: i });
+    }
+  }
+
+  const { entries, totalColumns } = layoutOverlappingEvents(allEvents);
+
+  // Convert layout entries to positioned events
+  return entries.map((entry) => {
+    const top = (entry.startMin / 60) * HOUR_HEIGHT_PX;
+    const height = Math.max(((entry.endMin - entry.startMin) / 60) * HOUR_HEIGHT_PX, 4);
+    const width = 1 / totalColumns;
+    const left = entry.col * width;
+
+    return {
+      event: entry.event,
+      user: entry.user,
+      userIndex: entry.userIndex,
+      top,
+      height,
+      left,
+      width,
+    };
+  });
+}
+
+/**
+ * Returns a list of hour labels for the calendar time gutter.
+ * E.g. ["7:00", "8:00", ..., "18:00"]
+ */
+export function generateHourLabels(): string[] {
+  const labels: string[] = [];
+  for (let h = 7; h < 19; h++) {
+    labels.push(`${h}:00`);
+  }
+  return labels;
 }

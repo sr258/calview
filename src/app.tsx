@@ -20,9 +20,11 @@ import { LoginDialog } from "./components/login-dialog.js";
 import { UserSearch } from "./components/user-search.js";
 import { FavoritesList } from "./components/favorites-list.js";
 import { WeekNavigator } from "./components/week-navigator.js";
+import { ViewSwitcher } from "./components/view-switcher.js";
 import { ScheduleGrid } from "./components/schedule-grid.js";
+import { CalendarView } from "./components/calendar-view.js";
 import { Notifications, type NotificationVariant } from "./components/notifications.js";
-import { initializeApp } from "./state/app-state.js";
+import { initializeApp, activeView } from "./state/app-state.js";
 
 interface ToastMessage {
   id: number;
@@ -80,8 +82,11 @@ export function App() {
       <div class="app-content">
         <UserSearch />
         <FavoritesList />
-        <WeekNavigator />
-        <ScheduleGrid />
+        <div class="week-nav-row">
+          <WeekNavigator />
+          <ViewSwitcher />
+        </div>
+        {activeView.value === "table" ? <ScheduleGrid /> : <CalendarView />}
       </div>
 
       <Notifications toasts={toasts} onDismiss={dismissToast} />
