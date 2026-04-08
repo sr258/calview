@@ -72,6 +72,7 @@ struct OutlookCommandResult {
 #[cfg(windows)]
 mod outlook_com {
     use std::ffi::OsStr;
+    use std::mem::ManuallyDrop;
     use std::os::windows::ffi::OsStrExt;
     use windows::core::PCWSTR;
     use windows::Win32::System::Com::{
@@ -79,8 +80,10 @@ mod outlook_com {
         CLSCTX_LOCAL_SERVER, COINIT_APARTMENTTHREADED, DISPATCH_METHOD, DISPATCH_PROPERTYGET,
         DISPATCH_PROPERTYPUT, DISPPARAMS,
     };
-    use windows::Win32::System::Ole::SystemTimeToVariantTime;
-    use windows::Win32::System::Variant::{VARIANT, VT_BSTR, VT_DATE, VT_DISPATCH, VT_I4};
+    use windows::Win32::System::Variant::{
+        SystemTimeToVariantTime, VARIANT, VARIANT_0, VARIANT_0_0, VARIANT_0_0_0, VT_BSTR, VT_DATE,
+        VT_DISPATCH, VT_I4,
+    };
 
     /// Convert a Rust string to a null-terminated wide string.
     fn to_wide(s: &str) -> Vec<u16> {
@@ -88,6 +91,260 @@ mod outlook_com {
             .encode_wide()
             .chain(std::iter::once(0))
             .collect()
+    }
+
+    /// Get the DISPID for a named member of an IDispatch interface.
+    fn get_dispid(disp: &IDispatch, name: &str) -> Result<i32, String> {
+        let wide = to_wide(name);
+        let pcwstr = PCWSTR(wide.as_ptr());
+        let names = [pcwstr];
+        let mut dispid = [0i32];
+        unsafe {
+            disp.GetIDsOfNames(
+                &windows::core::GUID::zeroed(),
+                names.as_ptr(),
+                1,
+                0,
+                dispid.as_mut_ptr(),
+            )
+            .map_err(|e| format!("GetIDsOfNames('{}') fehlgeschlagen: {}", name, e))?;
+        }
+        Ok(dispid[0])
+    }
+
+    /// Invoke a method on an IDispatch interface with the given arguments.
+    /// Arguments must be passed in reverse order (COM convention).
+    fn invoke_method(
+        disp: &IDispatch,
+        name: &str,
+        args: &mut [VARIANT],
+    ) -> Result<VARIANT, String> {
+        let dispid = get_dispid(disp, name)?;
+        let mut result = VARIANT::default();
+        let mut params = DISPPARAMS {
+            rgvarg: if args.is_empty() {
+                std::ptr::null_mut()
+            } else {
+                args.as_mut_ptr()
+            },
+            cArgs: args.len() as u32,
+            rgdispidNamedArgs: std::ptr::null_mut(),
+            cNamedArgs: 0,
+        };
+        unsafe {
+            disp.Invoke(
+                dispid,
+                &windows::core::GUID::zeroed(),
+                0,
+                DISPATCH_METHOD,
+                &mut params,
+                Some(&mut result),
+                None,
+                None,
+            )
+            .map_err(|e| format!("Invoke('{}') fehlgeschlagen: {}", name, e))?;
+        }
+        Ok(result)
+    }
+
+    /// Get a property value from an IDispatch interface.
+    fn get_property(disp: &IDispatch, name: &str) -> Result<VARIANT, String> {
+        let dispid = get_dispid(disp, name)?;
+        let mut result = VARIANT::default();
+        let mut params = DISPPARAMS {
+            rgvarg: std::ptr::null_mut(),
+            cArgs: 0,
+            rgdispidNamedArgs: std::ptr::null_mut(),
+            cNamedArgs: 0,
+        };
+        unsafe {
+            disp.Invoke(
+                dispid,
+                &windows::core::GUID::zeroed(),
+                0,
+                DISPATCH_PROPERTYGET,
+                &mut params,
+                Some(&mut result),
+                None,
+                None,
+            )
+            .map_err(|e| format!("Get('{}') fehlgeschlagen: {}", name, e))?;
+        }
+        Ok(result)
+    }
+
+    /// Put (set) a property value on an IDispatch interface.
+    fn put_property(disp: &IDispatch, name: &str, value: &VARIANT) -> Result<(), String> {
+        let dispid = get_dispid(disp, name)?;
+        let mut args = [value.clone()];
+        let mut named_arg = [-3i32]; // DISPID_PROPERTYPUT
+        let mut params = DISPPARAMS {
+            rgvarg: args.as_mut_ptr(),
+            cArgs: 1,
+            rgdispidNamedArgs: named_arg.as_mut_ptr(),
+            cNamedArgs: 1,
+        };
+        unsafe {
+            disp.Invoke(
+                dispid,
+                &windows::core::GUID::zeroed(),
+                0,
+                DISPATCH_PROPERTYPUT,
+                &mut params,
+                None,
+                None,
+                None,
+            )
+            .map_err(|e| format!("Put('{}') fehlgeschlagen: {}", name, e))?;
+        }
+        Ok(())
+    }
+
+    /// Extract an IDispatch pointer from a VARIANT.
+    fn variant_to_dispatch(var: &VARIANT) -> Result<IDispatch, String> {
+        unsafe {
+            let inner = &*var.Anonymous.Anonymous;
+            if inner.vt != VT_DISPATCH {
+                return Err(format!(
+                    "Erwarteter VT_DISPATCH, aber erhalten: {:?}",
+                    inner.vt
+                ));
+            }
+            // pdispVal is ManuallyDrop<Option<IDispatch>>
+            let opt_disp: &ManuallyDrop<Option<IDispatch>> = &inner.Anonymous.pdispVal;
+            match &**opt_disp {
+                Some(disp) => Ok(disp.clone()),
+                None => Err("IDispatch-Zeiger ist null".to_string()),
+            }
+        }
+    }
+
+    /// Create a VT_BSTR VARIANT from a Rust string.
+    fn variant_bstr(s: &str) -> VARIANT {
+        let bstr = windows::core::BSTR::from(s);
+        VARIANT {
+            Anonymous: VARIANT_0 {
+                Anonymous: ManuallyDrop::new(VARIANT_0_0 {
+                    vt: VT_BSTR,
+                    wReserved1: 0,
+                    wReserved2: 0,
+                    wReserved3: 0,
+                    Anonymous: VARIANT_0_0_0 {
+                        bstrVal: ManuallyDrop::new(bstr),
+                    },
+                }),
+            },
+        }
+    }
+
+    /// Create a VT_I4 VARIANT from an i32.
+    fn variant_i4(val: i32) -> VARIANT {
+        VARIANT {
+            Anonymous: VARIANT_0 {
+                Anonymous: ManuallyDrop::new(VARIANT_0_0 {
+                    vt: VT_I4,
+                    wReserved1: 0,
+                    wReserved2: 0,
+                    wReserved3: 0,
+                    Anonymous: VARIANT_0_0_0 { lVal: val },
+                }),
+            },
+        }
+    }
+
+    /// Create a VT_DATE VARIANT from a date string "YYYY-MM-DD HH:mm".
+    fn variant_date(date_str: &str) -> Result<VARIANT, String> {
+        // Parse "YYYY-MM-DD HH:mm"
+        let parts: Vec<&str> = date_str
+            .split(|c| c == '-' || c == ' ' || c == ':')
+            .collect();
+        if parts.len() != 5 {
+            return Err(format!(
+                "Ungueltiges Datumsformat: '{}' (erwartet 'YYYY-MM-DD HH:mm')",
+                date_str
+            ));
+        }
+        let year: u16 = parts[0]
+            .parse()
+            .map_err(|_| format!("Ungueltiges Jahr: '{}'", parts[0]))?;
+        let month: u16 = parts[1]
+            .parse()
+            .map_err(|_| format!("Ungueltiger Monat: '{}'", parts[1]))?;
+        let day: u16 = parts[2]
+            .parse()
+            .map_err(|_| format!("Ungueltiger Tag: '{}'", parts[2]))?;
+        let hour: u16 = parts[3]
+            .parse()
+            .map_err(|_| format!("Ungueltige Stunde: '{}'", parts[3]))?;
+        let minute: u16 = parts[4]
+            .parse()
+            .map_err(|_| format!("Ungueltige Minute: '{}'", parts[4]))?;
+
+        let st = windows::Win32::Foundation::SYSTEMTIME {
+            wYear: year,
+            wMonth: month,
+            wDayOfWeek: 0,
+            wDay: day,
+            wHour: hour,
+            wMinute: minute,
+            wSecond: 0,
+            wMilliseconds: 0,
+        };
+
+        let mut vtime: f64 = 0.0;
+        let ret = unsafe { SystemTimeToVariantTime(&st, &mut vtime) };
+        if ret == 0 {
+            return Err("SystemTimeToVariantTime fehlgeschlagen".to_string());
+        }
+
+        Ok(VARIANT {
+            Anonymous: VARIANT_0 {
+                Anonymous: ManuallyDrop::new(VARIANT_0_0 {
+                    vt: VT_DATE,
+                    wReserved1: 0,
+                    wReserved2: 0,
+                    wReserved3: 0,
+                    Anonymous: VARIANT_0_0_0 { date: vtime },
+                }),
+            },
+        })
+    }
+
+    /// Create an Outlook appointment using COM automation.
+    ///
+    /// Spawns a dedicated STA thread, creates Outlook.Application via COM,
+    /// sets appointment properties, adds attendees, and calls Display().
+    pub fn create_appointment(
+        subject: String,
+        start: String,
+        duration: u32,
+        location: String,
+        body: String,
+        attendees: Vec<String>,
+    ) -> Result<String, String> {
+        // Spawn a dedicated thread with its own COM apartment (STA)
+        let handle = std::thread::spawn(move || -> Result<String, String> {
+            unsafe {
+                // Initialize COM in single-threaded apartment mode
+                let hr = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+                if hr.is_err() {
+                    return Err(format!("CoInitializeEx fehlgeschlagen: {:?}", hr));
+                }
+            }
+
+            let result =
+                create_appointment_inner(&subject, &start, duration, &location, &body, &attendees);
+
+            unsafe {
+                CoUninitialize();
+            }
+
+            result
+        });
+
+        handle
+            .join()
+            .map_err(|_| "COM-Thread ist unerwartet abgestuerzt".to_string())?
     }
 
     /// Get the DISPID for a named member of an IDispatch interface.
