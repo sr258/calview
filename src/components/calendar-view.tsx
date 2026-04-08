@@ -6,7 +6,7 @@
  * blocks in a Google-Calendar-style layout.
  */
 
-import { useRef, useEffect } from "preact/hooks";
+import { useRef, useEffect, useState } from "preact/hooks";
 import {
   selectedUsers,
   userEvents,
@@ -31,6 +31,40 @@ import type { OutlookAppointmentParams } from "../services/outlook.js";
 
 /** Schedule start hour (matches SCHEDULE_START "07:00"). */
 const SCHEDULE_START_HOUR = 7;
+
+/** Schedule end hour (exclusive, matches SCHEDULE_END "19:00"). */
+const SCHEDULE_END_HOUR = 19;
+
+/**
+ * Returns the day index (0=Mon..4=Fri) of today within the displayed week,
+ * or -1 if today is not in the current week.
+ */
+function getTodayDayIndex(weekStart: string): number {
+  const today = new Date();
+  const todayStr =
+    today.getFullYear().toString() +
+    "-" +
+    String(today.getMonth() + 1).padStart(2, "0") +
+    "-" +
+    String(today.getDate()).padStart(2, "0");
+
+  for (let i = 0; i < WEEKDAY_COUNT; i++) {
+    if (addDays(weekStart, i) === todayStr) return i;
+  }
+  return -1;
+}
+
+/**
+ * Returns the pixel offset from the top of the calendar grid for the current time,
+ * or -1 if outside the schedule range.
+ */
+function getNowIndicatorTop(): number {
+  const now = new Date();
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  if (hours < SCHEDULE_START_HOUR || hours >= SCHEDULE_END_HOUR) return -1;
+  return ((hours - SCHEDULE_START_HOUR) * 60 + minutes) / 60 * HOUR_HEIGHT_PX;
+}
 
 /** Palette of user colors for overlapping events. */
 const USER_COLORS = [
@@ -58,6 +92,15 @@ export function CalendarView({ onSlotClick }: CalendarViewProps) {
   const weekStart = currentWeekStart.value;
   const failed = failedUsers.value;
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [nowTop, setNowTop] = useState(getNowIndicatorTop());
+
+  const todayDayIdx = getTodayDayIndex(weekStart);
+
+  // Update current time indicator every 60 seconds
+  useEffect(() => {
+    const timer = setInterval(() => setNowTop(getNowIndicatorTop()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Auto-scroll to ~08:00 on first render / week change
   useEffect(() => {
@@ -101,6 +144,8 @@ export function CalendarView({ onSlotClick }: CalendarViewProps) {
               users={users}
               events={events}
               failed={failed}
+              isToday={dayIdx === todayDayIdx}
+              nowTop={dayIdx === todayDayIdx ? nowTop : -1}
               onSlotClick={onSlotClick}
             />
           ))}
@@ -118,10 +163,12 @@ interface DayColumnProps {
   users: import("../model/types.js").CalDavUser[];
   events: Map<string, import("../model/types.js").CalDavEvent[]>;
   failed: Set<string>;
+  isToday: boolean;
+  nowTop: number;
   onSlotClick?: (params: OutlookAppointmentParams) => void;
 }
 
-function CalendarDayColumn({ dayIdx, weekStart, users, events, failed, onSlotClick }: DayColumnProps) {
+function CalendarDayColumn({ dayIdx, weekStart, users, events, failed, isToday, nowTop, onSlotClick }: DayColumnProps) {
   const dayDate = addDays(weekStart, dayIdx);
   const header = formatDayHeader(weekStart, dayIdx);
 
@@ -156,8 +203,8 @@ function CalendarDayColumn({ dayIdx, weekStart, users, events, failed, onSlotCli
   };
 
   return (
-    <div class="cal-day-column">
-      <div class="cal-day-header">{header}</div>
+    <div class={`cal-day-column${isToday ? " cal-day-today" : ""}`}>
+      <div class={`cal-day-header${isToday ? " cal-day-header-today" : ""}`}>{header}</div>
       <div class="cal-day-body" style={{ height: `${CALENDAR_GRID_HEIGHT}px` }} onClick={handleDayBodyClick}>
         {/* Hour grid lines */}
         {Array.from({ length: 12 }, (_, i) => (
@@ -176,6 +223,23 @@ function CalendarDayColumn({ dayIdx, weekStart, users, events, failed, onSlotCli
             style={{ top: `${i * HOUR_HEIGHT_PX + HOUR_HEIGHT_PX / 2}px` }}
           />
         ))}
+
+        {/* Hour hover zones */}
+        {Array.from({ length: 12 }, (_, i) => (
+          <div
+            key={`hover-${i}`}
+            class="cal-hour-hover-zone"
+            style={{ top: `${i * HOUR_HEIGHT_PX}px`, height: `${HOUR_HEIGHT_PX}px` }}
+          />
+        ))}
+
+        {/* Current time indicator */}
+        {nowTop >= 0 && (
+          <div class="cal-now-indicator" style={{ top: `${nowTop}px` }}>
+            <div class="cal-now-dot" />
+            <div class="cal-now-line" />
+          </div>
+        )}
 
         {/* Event blocks */}
         {positioned.map((pe, i) => (

@@ -175,7 +175,6 @@ export function UserSearch() {
                 <div class="user-search-item-content">
                   <div class="user-search-item-text">
                     <span class="user-search-item-name">{user.displayName}</span>
-                    <span class="user-search-item-href">{user.href}</span>
                   </div>
                   <button
                     class={`btn-favorite-star${isFav ? " filled" : ""}`}

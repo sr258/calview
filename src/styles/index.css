@@ -127,6 +127,19 @@ body {
   gap: var(--cv-space-s);
 }
 
+.toolbar-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3em;
+  line-height: 0;
+  color: var(--cv-text-secondary);
+}
+
+.toolbar-icon-btn:hover {
+  color: var(--cv-text-primary);
+}
+
 .connection-status {
   font-size: var(--cv-font-s);
 }
@@ -735,4 +748,112 @@ body {
   background-color: var(--cv-contrast-5);
   color: var(--cv-text-secondary);
   margin-top: var(--cv-space-xs);
+}
+
+/* ─── Help Dialog ───────────────────────────────────────────────────────── */
+
+.help-dialog {
+  max-width: 540px;
+}
+
+.help-dialog-body {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.help-dialog-body section {
+  margin-bottom: var(--cv-space-m);
+}
+
+.help-dialog-body section:last-child {
+  margin-bottom: 0;
+}
+
+.help-dialog-body h3 {
+  font-size: var(--cv-font-s);
+  font-weight: 600;
+  margin-bottom: var(--cv-space-xs);
+  color: var(--cv-text-primary);
+}
+
+.help-dialog-body p {
+  font-size: var(--cv-font-s);
+  line-height: 1.5;
+  color: var(--cv-text-secondary);
+}
+
+.help-dialog-body ol {
+  font-size: var(--cv-font-s);
+  line-height: 1.6;
+  color: var(--cv-text-secondary);
+  padding-left: 1.5em;
+}
+
+.help-color-legend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cv-space-xs);
+}
+
+.help-color-item {
+  display: flex;
+  align-items: center;
+  gap: var(--cv-space-s);
+  font-size: var(--cv-font-s);
+  color: var(--cv-text-secondary);
+}
+
+.help-swatch {
+  display: inline-block;
+  width: 24px;
+  height: 16px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  border: 1px solid var(--cv-contrast-10);
+}
+
+/* ─── About Dialog ──────────────────────────────────────────────────────── */
+
+.about-dialog {
+  max-width: 440px;
+}
+
+.about-dialog-body {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.about-app-title {
+  font-size: var(--cv-font-l);
+  text-align: center;
+  margin-bottom: var(--cv-space-xxs);
+}
+
+.about-version {
+  font-size: var(--cv-font-s);
+  color: var(--cv-text-secondary);
+  text-align: center;
+  margin-bottom: var(--cv-space-m);
+}
+
+.about-dialog-body section {
+  margin-bottom: var(--cv-space-m);
+}
+
+.about-dialog-body section:last-child {
+  margin-bottom: 0;
+}
+
+.about-dialog-body h3 {
+  font-size: var(--cv-font-s);
+  font-weight: 600;
+  margin-bottom: var(--cv-space-xs);
+  color: var(--cv-text-primary);
+}
+
+.about-placeholder {
+  font-size: var(--cv-font-s);
+  color: var(--cv-text-secondary);
+  font-style: italic;
+  line-height: 1.5;
 }

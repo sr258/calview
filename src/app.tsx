@@ -17,6 +17,8 @@
 import { useState, useCallback, useEffect } from "preact/hooks";
 import { Toolbar } from "./components/toolbar.js";
 import { LoginDialog } from "./components/login-dialog.js";
+import { HelpDialog } from "./components/help-dialog.js";
+import { AboutDialog } from "./components/about-dialog.js";
 import { UserSearch } from "./components/user-search.js";
 import { FavoritesList } from "./components/favorites-list.js";
 import { WeekNavigator } from "./components/week-navigator.js";
@@ -43,6 +45,8 @@ let nextToastId = 0;
 export function App() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [mockDialogParams, setMockDialogParams] = useState<OutlookFormattedParams | null>(null);
+  const [showHelp, setShowHelp] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
 
   const showNotification = useCallback(
     (message: string, variant: NotificationVariant) => {
@@ -101,9 +105,12 @@ export function App() {
 
   return (
     <div class="app-root">
-      <Toolbar />
+      <Toolbar onOpenHelp={() => setShowHelp(true)} onOpenAbout={() => setShowAbout(true)} />
 
       <LoginDialog onNotification={showNotification} />
+
+      <HelpDialog open={showHelp} onClose={() => setShowHelp(false)} />
+      <AboutDialog open={showAbout} onClose={() => setShowAbout(false)} />
 
       <div class="app-content">
         <UserSearch />

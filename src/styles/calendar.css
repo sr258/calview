@@ -22,6 +22,9 @@
   border-bottom: 1px solid var(--cv-contrast-10);
   background-color: var(--cv-surface);
   flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
 }
 
 .cal-legend-item {
@@ -121,6 +124,68 @@
   position: relative;
   flex: 1;
   cursor: pointer;
+}
+
+/* ─── Hour Hover Zones ──────────────────────────────────────────────────── */
+
+.cal-hour-hover-zone {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+  transition: background-color 0.1s ease;
+  z-index: 0;
+}
+
+.cal-day-body:hover .cal-hour-hover-zone {
+  pointer-events: auto;
+}
+
+.cal-hour-hover-zone:hover {
+  background-color: color-mix(in srgb, var(--cv-warning) 12%, transparent);
+  outline: 1px solid var(--cv-warning);
+  outline-offset: -1px;
+}
+
+/* ─── Today Highlight (Calendar) ────────────────────────────────────────── */
+
+.cal-day-today {
+  background-color: color-mix(in srgb, var(--cv-primary) 4%, var(--cv-surface));
+}
+
+.cal-day-header-today {
+  color: var(--cv-primary);
+  background-color: color-mix(in srgb, var(--cv-primary) 6%, var(--cv-surface));
+}
+
+/* ─── Current Time Indicator (Calendar) ─────────────────────────────────── */
+
+.cal-now-indicator {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 4;
+  pointer-events: none;
+  height: 0;
+}
+
+.cal-now-dot {
+  position: absolute;
+  left: -4px;
+  top: -5px;
+  width: 10px;
+  height: 10px;
+  background-color: var(--cv-error);
+  border-radius: 50%;
+}
+
+.cal-now-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 2px;
+  background-color: var(--cv-error);
 }
 
 /* ─── Hour / Half-Hour Grid Lines ───────────────────────────────────────── */

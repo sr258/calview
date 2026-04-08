@@ -156,10 +156,41 @@
   cursor: pointer;
   border-bottom: 1px solid var(--cv-contrast-10);
   white-space: nowrap;
+  transition: filter 0.1s ease;
 }
 
-.schedule-cell:hover {
-  filter: brightness(0.9);
+/* Hour-level hover highlight — only on the "Alle frei" summary row.
+   Applied via JS: .hour-hover on all cells in the hour,
+   .hour-hover-left / .hour-hover-right on the first / last cell. */
+
+.schedule-cell.hour-hover {
+  filter: brightness(0.88);
+  box-shadow:
+    inset 0  2px 0 var(--cv-warning),
+    inset 0 -2px 0 var(--cv-warning);
+}
+
+.schedule-cell.hour-hover.hour-hover-left {
+  box-shadow:
+    inset  2px 0 0 var(--cv-warning),
+    inset  0  2px 0 var(--cv-warning),
+    inset  0 -2px 0 var(--cv-warning);
+}
+
+.schedule-cell.hour-hover.hour-hover-right {
+  box-shadow:
+    inset -2px 0 0 var(--cv-warning),
+    inset  0  2px 0 var(--cv-warning),
+    inset  0 -2px 0 var(--cv-warning);
+}
+
+/* Corner case: single cell spans the entire hour (left + right) */
+.schedule-cell.hour-hover.hour-hover-left.hour-hover-right {
+  box-shadow:
+    inset  2px 0 0 var(--cv-warning),
+    inset -2px 0 0 var(--cv-warning),
+    inset  0  2px 0 var(--cv-warning),
+    inset  0 -2px 0 var(--cv-warning);
 }
 
 /* Inner label wrapper: reliably clips text content (overflow on <td> is unreliable) */
@@ -214,6 +245,39 @@
 /* "All Free" row: at least one person busy (subtle gray) */
 .slot-not-all-free {
   background-color: var(--cv-contrast-5);
+}
+
+/* ─── Today Highlight ───────────────────────────────────────────────────── */
+
+.today-column {
+  background-color: color-mix(in srgb, var(--cv-primary) 6%, var(--cv-surface));
+}
+
+.schedule-day-header.today-column {
+  color: var(--cv-primary);
+}
+
+/* ─── Current Time Indicator ────────────────────────────────────────────── */
+
+.schedule-now-indicator {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: var(--cv-error);
+  z-index: 8;
+  pointer-events: none;
+}
+
+.schedule-now-indicator::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -4px;
+  width: 10px;
+  height: 10px;
+  background-color: var(--cv-error);
+  border-radius: 50%;
 }
 
 /* ─── Error Indicator ───────────────────────────────────────────────────── */

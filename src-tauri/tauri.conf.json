@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "CalView - Appointment Planner",
+        "title": "CalView - Terminplaner",
         "width": 1200,
         "height": 800
       }
