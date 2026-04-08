@@ -120,6 +120,7 @@
 .cal-day-body {
   position: relative;
   flex: 1;
+  cursor: pointer;
 }
 
 /* ─── Hour / Half-Hour Grid Lines ───────────────────────────────────────── */

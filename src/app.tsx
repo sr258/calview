@@ -23,8 +23,14 @@ import { WeekNavigator } from "./components/week-navigator.js";
 import { ViewSwitcher } from "./components/view-switcher.js";
 import { ScheduleGrid } from "./components/schedule-grid.js";
 import { CalendarView } from "./components/calendar-view.js";
+import { OutlookMockDialog } from "./components/outlook-mock-dialog.js";
 import { Notifications, type NotificationVariant } from "./components/notifications.js";
 import { initializeApp, activeView } from "./state/app-state.js";
+import {
+  openOutlookAppointment,
+  type OutlookAppointmentParams,
+  type OutlookFormattedParams,
+} from "./services/outlook.js";
 
 interface ToastMessage {
   id: number;
@@ -36,6 +42,7 @@ let nextToastId = 0;
 
 export function App() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [mockDialogParams, setMockDialogParams] = useState<OutlookFormattedParams | null>(null);
 
   const showNotification = useCallback(
     (message: string, variant: NotificationVariant) => {
@@ -73,6 +80,25 @@ export function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  /** Handle slot click: open Outlook appointment or show mock dialog. */
+  const handleSlotClick = useCallback(
+    async (params: OutlookAppointmentParams) => {
+      const result = await openOutlookAppointment(params);
+      switch (result.type) {
+        case "show_mock":
+          setMockDialogParams(result.params);
+          break;
+        case "tauri_success":
+          showNotification(result.message, "success");
+          break;
+        case "tauri_error":
+          showNotification(`Outlook-Fehler: ${result.message}`, "error");
+          break;
+      }
+    },
+    [showNotification],
+  );
+
   return (
     <div class="app-root">
       <Toolbar />
@@ -86,8 +112,15 @@ export function App() {
           <WeekNavigator />
           <ViewSwitcher />
         </div>
-        {activeView.value === "table" ? <ScheduleGrid /> : <CalendarView />}
+        {activeView.value === "table"
+          ? <ScheduleGrid onSlotClick={handleSlotClick} />
+          : <CalendarView onSlotClick={handleSlotClick} />}
       </div>
+
+      <OutlookMockDialog
+        params={mockDialogParams}
+        onClose={() => setMockDialogParams(null)}
+      />
 
       <Notifications toasts={toasts} onDismiss={dismissToast} />
     </div>

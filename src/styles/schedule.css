@@ -153,9 +153,13 @@
   text-align: center;
   vertical-align: middle;
   font-size: var(--cv-font-xxs);
-  cursor: default;
+  cursor: pointer;
   border-bottom: 1px solid var(--cv-contrast-10);
   white-space: nowrap;
+}
+
+.schedule-cell:hover {
+  filter: brightness(0.9);
 }
 
 /* Inner label wrapper: reliably clips text content (overflow on <td> is unreliable) */

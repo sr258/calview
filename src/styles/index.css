@@ -693,3 +693,46 @@ body {
   padding: var(--cv-space-l);
   text-align: center;
 }
+
+/* ─── Outlook Mock Dialog ───────────────────────────────────────────────── */
+
+.outlook-mock-dialog {
+  max-width: 480px;
+}
+
+.outlook-mock-field {
+  display: flex;
+  gap: var(--cv-space-s);
+  padding: var(--cv-space-xs) 0;
+  align-items: baseline;
+}
+
+.outlook-mock-label {
+  font-weight: 600;
+  font-size: var(--cv-font-s);
+  color: var(--cv-text-secondary);
+  min-width: 90px;
+  flex-shrink: 0;
+}
+
+.outlook-mock-value {
+  font-size: var(--cv-font-s);
+  color: var(--cv-text-primary);
+  word-break: break-word;
+}
+
+.outlook-mock-hint {
+  margin-top: var(--cv-space-s);
+  padding: var(--cv-space-s) var(--cv-space-m);
+  background-color: var(--cv-primary-10);
+  border-radius: var(--cv-radius-s);
+  font-size: var(--cv-font-xs);
+  color: var(--cv-primary-text);
+  line-height: 1.4;
+}
+
+.outlook-mock-hint-future {
+  background-color: var(--cv-contrast-5);
+  color: var(--cv-text-secondary);
+  margin-top: var(--cv-space-xs);
+}

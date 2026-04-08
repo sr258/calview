@@ -29,6 +29,7 @@
  */
 
 import type { ScheduleRow, CalDavUser } from "../model/types.js";
+import type { OutlookAppointmentParams } from "../services/outlook.js";
 import {
   scheduleRows,
   selectedUsers,
@@ -43,13 +44,18 @@ import {
   formatDayHeader,
   formatTimeForDisplay,
   computeMergedCells,
+  addDays,
   WEEKDAY_COUNT,
   SLOT_MINUTES,
   SLOT_WIDTH_PX,
   USER_COL_WIDTH_PX,
 } from "../model/schedule.js";
 
-export function ScheduleGrid() {
+export interface ScheduleGridProps {
+  onSlotClick?: (params: OutlookAppointmentParams) => void;
+}
+
+export function ScheduleGrid({ onSlotClick }: ScheduleGridProps) {
   const rows = scheduleRows.value;
   const users = selectedUsers.value;
 
@@ -80,6 +86,7 @@ export function ScheduleGrid() {
           timeSlots={timeSlots}
           failedUsers={failed}
           favorites={favs}
+          onSlotClick={onSlotClick}
         />
       </table>
     </div>
@@ -143,9 +150,10 @@ interface ScheduleBodyProps {
   timeSlots: string[];
   failedUsers: Set<string>;
   favorites: CalDavUser[];
+  onSlotClick?: (params: OutlookAppointmentParams) => void;
 }
 
-function ScheduleBody({ rows, timeSlots, failedUsers, favorites }: ScheduleBodyProps) {
+function ScheduleBody({ rows, timeSlots, failedUsers, favorites, onSlotClick }: ScheduleBodyProps) {
   return (
     <tbody>
       {rows.map((row, rowIdx) => (
@@ -156,6 +164,7 @@ function ScheduleBody({ rows, timeSlots, failedUsers, favorites }: ScheduleBodyP
           isFailed={row.user !== null && failedUsers.has(row.user.href)}
           isFavorite={row.user !== null && favorites.some((u) => u.href === row.user!.href)}
           isLastRow={rowIdx === rows.length - 1}
+          onSlotClick={onSlotClick}
         />
       ))}
     </tbody>
@@ -170,6 +179,7 @@ interface ScheduleRowProps {
   isFailed: boolean;
   isFavorite: boolean;
   isLastRow: boolean;
+  onSlotClick?: (params: OutlookAppointmentParams) => void;
 }
 
 function ScheduleRowComponent({
@@ -178,9 +188,32 @@ function ScheduleRowComponent({
   isFailed,
   isFavorite,
   isLastRow,
+  onSlotClick,
 }: ScheduleRowProps) {
   const isSummaryRow = row.user === null;
   const mergedCells = computeMergedCells(row.slots, timeSlots);
+
+  /** Extract time from slot key "dayIdx-HH:mm" and trigger Outlook. */
+  const handleSlotClick = (dayIdx: number, slotKey: string) => {
+    if (!onSlotClick) return;
+
+    const weekStart = currentWeekStart.value;
+    const date = addDays(weekStart, dayIdx);
+    // Slot key format: "dayIdx-HH:mm" → extract time part after first "-"
+    const slotTime = slotKey.substring(slotKey.indexOf("-") + 1);
+    const hour = parseInt(slotTime.split(":")[0], 10);
+    const attendees = selectedUsers.value.map((u) => u.displayName);
+
+    console.log("[schedule-grid] Slot clicked:", {
+      dayIdx,
+      slotTime,
+      date,
+      hour,
+      attendeeCount: attendees.length,
+    });
+
+    onSlotClick({ date, hour, attendees });
+  };
 
   return (
     <tr class={isSummaryRow ? "schedule-summary-row" : "schedule-user-row"}>
@@ -246,6 +279,7 @@ function ScheduleRowComponent({
           colSpan={cell.colSpan > 1 ? cell.colSpan : undefined}
           class={`schedule-cell${cell.slot.cssClass ? ` ${cell.slot.cssClass}` : ""}${cell.isFirstSlotOfDay && cell.dayIdx > 0 ? " day-separator" : ""}${cell.endsAtFullHour ? " hour-separator" : ""}`}
           title={cell.slot.tooltip ?? undefined}
+          onClick={() => handleSlotClick(cell.dayIdx, cell.key)}
         >
           {cell.slot.label ? (
             <div class="schedule-cell-label">{cell.slot.label}</div>

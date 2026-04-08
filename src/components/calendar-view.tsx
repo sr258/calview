@@ -27,6 +27,10 @@ import {
   getCssClassForEvent,
 } from "../model/schedule.js";
 import type { PositionedEvent } from "../model/types.js";
+import type { OutlookAppointmentParams } from "../services/outlook.js";
+
+/** Schedule start hour (matches SCHEDULE_START "07:00"). */
+const SCHEDULE_START_HOUR = 7;
 
 /** Palette of user colors for overlapping events. */
 const USER_COLORS = [
@@ -44,7 +48,11 @@ function getUserColor(userIndex: number): string {
   return USER_COLORS[userIndex % USER_COLORS.length];
 }
 
-export function CalendarView() {
+export interface CalendarViewProps {
+  onSlotClick?: (params: OutlookAppointmentParams) => void;
+}
+
+export function CalendarView({ onSlotClick }: CalendarViewProps) {
   const users = selectedUsers.value;
   const events = userEvents.value;
   const weekStart = currentWeekStart.value;
@@ -93,6 +101,7 @@ export function CalendarView() {
               users={users}
               events={events}
               failed={failed}
+              onSlotClick={onSlotClick}
             />
           ))}
         </div>
@@ -109,9 +118,10 @@ interface DayColumnProps {
   users: import("../model/types.js").CalDavUser[];
   events: Map<string, import("../model/types.js").CalDavEvent[]>;
   failed: Set<string>;
+  onSlotClick?: (params: OutlookAppointmentParams) => void;
 }
 
-function CalendarDayColumn({ dayIdx, weekStart, users, events, failed }: DayColumnProps) {
+function CalendarDayColumn({ dayIdx, weekStart, users, events, failed, onSlotClick }: DayColumnProps) {
   const dayDate = addDays(weekStart, dayIdx);
   const header = formatDayHeader(weekStart, dayIdx);
 
@@ -121,10 +131,34 @@ function CalendarDayColumn({ dayIdx, weekStart, users, events, failed }: DayColu
   // Build positioned events for this day
   const positioned = buildPositionedEventsForDay(users, events, dayDate);
 
+  /** Handle click on the day body — compute hour from Y position. */
+  const handleDayBodyClick = (e: MouseEvent) => {
+    if (!onSlotClick) return;
+
+    const target = e.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    const clickY = e.clientY - rect.top;
+    const rawHour = Math.floor(clickY / HOUR_HEIGHT_PX) + SCHEDULE_START_HOUR;
+    const hour = Math.max(SCHEDULE_START_HOUR, Math.min(18, rawHour));
+    const date = addDays(weekStart, dayIdx);
+    const attendees = selectedUsers.value.map((u) => u.displayName);
+
+    console.log("[calendar-view] Day body clicked:", {
+      dayIdx,
+      clickY: Math.round(clickY),
+      rawHour,
+      hour,
+      date,
+      attendeeCount: attendees.length,
+    });
+
+    onSlotClick({ date, hour, attendees });
+  };
+
   return (
     <div class="cal-day-column">
       <div class="cal-day-header">{header}</div>
-      <div class="cal-day-body" style={{ height: `${CALENDAR_GRID_HEIGHT}px` }}>
+      <div class="cal-day-body" style={{ height: `${CALENDAR_GRID_HEIGHT}px` }} onClick={handleDayBodyClick}>
         {/* Hour grid lines */}
         {Array.from({ length: 12 }, (_, i) => (
           <div
