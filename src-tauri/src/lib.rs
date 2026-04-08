@@ -1,8 +1,4 @@
 use serde::{Deserialize, Serialize};
-use std::io::Read as _;
-use std::io::Write as _;
-use std::process::{Command, Stdio};
-use tauri::Manager;
 
 const KEYRING_SERVICE: &str = "calview";
 const KEYRING_USER: &str = "credentials";
@@ -65,46 +61,353 @@ fn delete_credentials() -> Result<(), String> {
 /// Result returned from the open_outlook_appointment command.
 #[derive(Serialize)]
 struct OutlookCommandResult {
-    /// "dialog_opened" | "completed" | "error"
+    /// "success" | "error"
     status: String,
-    /// Human-readable message for debugging
+    /// Human-readable message
     message: String,
-    /// PowerShell stdout (if available)
-    stdout: String,
-    /// PowerShell stderr (if available)
-    stderr: String,
-    /// PowerShell exit code (-1 if still running or unknown)
-    #[serde(rename = "exitCode")]
-    exit_code: i32,
-    /// Path to the PowerShell log file for remote debugging
-    #[serde(rename = "logFile")]
-    log_file: String,
 }
 
-/// JSON structure written to the temp file for the PowerShell script.
-#[derive(Serialize)]
-struct OutlookParams {
-    subject: String,
-    start: String,
-    duration: u32,
-    location: String,
-    body: String,
-    attendees: Vec<String>,
+// ─── Windows COM automation for Outlook ─────────────────────────────────────
+
+#[cfg(windows)]
+mod outlook_com {
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::System::Com::{
+        CLSIDFromProgID, CoCreateInstance, CoInitializeEx, CoUninitialize, IDispatch,
+        CLSCTX_LOCAL_SERVER, COINIT_APARTMENTTHREADED, DISPATCH_METHOD, DISPATCH_PROPERTYGET,
+        DISPATCH_PROPERTYPUT, DISPPARAMS,
+    };
+    use windows::Win32::System::Ole::SystemTimeToVariantTime;
+    use windows::Win32::System::Variant::{VARIANT, VT_BSTR, VT_DATE, VT_DISPATCH, VT_I4};
+
+    /// Convert a Rust string to a null-terminated wide string.
+    fn to_wide(s: &str) -> Vec<u16> {
+        OsStr::new(s)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    /// Get the DISPID for a named member of an IDispatch interface.
+    fn get_dispid(disp: &IDispatch, name: &str) -> Result<i32, String> {
+        let wide = to_wide(name);
+        let names = [wide.as_ptr()];
+        let mut dispid = [0i32];
+        unsafe {
+            disp.GetIDsOfNames(
+                &windows::core::GUID::zeroed(),
+                names.as_ptr(),
+                1,
+                0,
+                dispid.as_mut_ptr(),
+            )
+            .map_err(|e| format!("GetIDsOfNames('{}') fehlgeschlagen: {}", name, e))?;
+        }
+        Ok(dispid[0])
+    }
+
+    /// Invoke a method on an IDispatch interface with the given arguments.
+    /// Arguments must be passed in reverse order (COM convention).
+    fn invoke_method(
+        disp: &IDispatch,
+        name: &str,
+        args: &mut [VARIANT],
+    ) -> Result<VARIANT, String> {
+        let dispid = get_dispid(disp, name)?;
+        let mut result = VARIANT::default();
+        let mut params = DISPPARAMS {
+            rgvarg: if args.is_empty() {
+                std::ptr::null_mut()
+            } else {
+                args.as_mut_ptr()
+            },
+            cArgs: args.len() as u32,
+            rgdispidNamedArgs: std::ptr::null_mut(),
+            cNamedArgs: 0,
+        };
+        unsafe {
+            disp.Invoke(
+                dispid,
+                &windows::core::GUID::zeroed(),
+                0,
+                DISPATCH_METHOD,
+                &mut params,
+                Some(&mut result),
+                None,
+                None,
+            )
+            .map_err(|e| format!("Invoke('{}') fehlgeschlagen: {}", name, e))?;
+        }
+        Ok(result)
+    }
+
+    /// Get a property value from an IDispatch interface.
+    fn get_property(disp: &IDispatch, name: &str) -> Result<VARIANT, String> {
+        let dispid = get_dispid(disp, name)?;
+        let mut result = VARIANT::default();
+        let mut params = DISPPARAMS {
+            rgvarg: std::ptr::null_mut(),
+            cArgs: 0,
+            rgdispidNamedArgs: std::ptr::null_mut(),
+            cNamedArgs: 0,
+        };
+        unsafe {
+            disp.Invoke(
+                dispid,
+                &windows::core::GUID::zeroed(),
+                0,
+                DISPATCH_PROPERTYGET,
+                &mut params,
+                Some(&mut result),
+                None,
+                None,
+            )
+            .map_err(|e| format!("Get('{}') fehlgeschlagen: {}", name, e))?;
+        }
+        Ok(result)
+    }
+
+    /// Put (set) a property value on an IDispatch interface.
+    fn put_property(disp: &IDispatch, name: &str, value: &VARIANT) -> Result<(), String> {
+        let dispid = get_dispid(disp, name)?;
+        let mut args = [value.clone()];
+        let mut named_arg = [-3i32]; // DISPID_PROPERTYPUT
+        let mut params = DISPPARAMS {
+            rgvarg: args.as_mut_ptr(),
+            cArgs: 1,
+            rgdispidNamedArgs: named_arg.as_mut_ptr(),
+            cNamedArgs: 1,
+        };
+        unsafe {
+            disp.Invoke(
+                dispid,
+                &windows::core::GUID::zeroed(),
+                0,
+                DISPATCH_PROPERTYPUT,
+                &mut params,
+                None,
+                None,
+                None,
+            )
+            .map_err(|e| format!("Put('{}') fehlgeschlagen: {}", name, e))?;
+        }
+        Ok(())
+    }
+
+    /// Extract an IDispatch pointer from a VARIANT.
+    fn variant_to_dispatch(var: &VARIANT) -> Result<IDispatch, String> {
+        unsafe {
+            let vt = var.Anonymous.Anonymous.vt;
+            if vt != VT_DISPATCH {
+                return Err(format!("Erwarteter VT_DISPATCH, aber erhalten: {:?}", vt));
+            }
+            let punk = var.Anonymous.Anonymous.Anonymous.pdispVal;
+            if punk.is_null() {
+                return Err("IDispatch-Zeiger ist null".to_string());
+            }
+            Ok((*punk).clone())
+        }
+    }
+
+    /// Create a VT_BSTR VARIANT from a Rust string.
+    fn variant_bstr(s: &str) -> VARIANT {
+        let bstr = windows::core::BSTR::from(s);
+        let mut var = VARIANT::default();
+        unsafe {
+            var.Anonymous.Anonymous.vt = VT_BSTR;
+            var.Anonymous.Anonymous.Anonymous.bstrVal = std::mem::ManuallyDrop::new(bstr);
+        }
+        var
+    }
+
+    /// Create a VT_I4 VARIANT from an i32.
+    fn variant_i4(val: i32) -> VARIANT {
+        let mut var = VARIANT::default();
+        unsafe {
+            var.Anonymous.Anonymous.vt = VT_I4;
+            var.Anonymous.Anonymous.Anonymous.lVal = val;
+        }
+        var
+    }
+
+    /// Create a VT_DATE VARIANT from a date string "YYYY-MM-DD HH:mm".
+    fn variant_date(date_str: &str) -> Result<VARIANT, String> {
+        // Parse "YYYY-MM-DD HH:mm"
+        let parts: Vec<&str> = date_str
+            .split(|c| c == '-' || c == ' ' || c == ':')
+            .collect();
+        if parts.len() != 5 {
+            return Err(format!(
+                "Ungueltiges Datumsformat: '{}' (erwartet 'YYYY-MM-DD HH:mm')",
+                date_str
+            ));
+        }
+        let year: u16 = parts[0]
+            .parse()
+            .map_err(|_| format!("Ungueltiges Jahr: '{}'", parts[0]))?;
+        let month: u16 = parts[1]
+            .parse()
+            .map_err(|_| format!("Ungueltiger Monat: '{}'", parts[1]))?;
+        let day: u16 = parts[2]
+            .parse()
+            .map_err(|_| format!("Ungueltiger Tag: '{}'", parts[2]))?;
+        let hour: u16 = parts[3]
+            .parse()
+            .map_err(|_| format!("Ungueltige Stunde: '{}'", parts[3]))?;
+        let minute: u16 = parts[4]
+            .parse()
+            .map_err(|_| format!("Ungueltige Minute: '{}'", parts[4]))?;
+
+        let st = windows::Win32::Foundation::SYSTEMTIME {
+            wYear: year,
+            wMonth: month,
+            wDayOfWeek: 0,
+            wDay: day,
+            wHour: hour,
+            wMinute: minute,
+            wSecond: 0,
+            wMilliseconds: 0,
+        };
+
+        let mut vtime: f64 = 0.0;
+        unsafe {
+            SystemTimeToVariantTime(&st, &mut vtime)
+                .ok()
+                .map_err(|e| format!("SystemTimeToVariantTime fehlgeschlagen: {}", e))?;
+        }
+
+        let mut var = VARIANT::default();
+        unsafe {
+            var.Anonymous.Anonymous.vt = VT_DATE;
+            var.Anonymous.Anonymous.Anonymous.date = vtime;
+        }
+        Ok(var)
+    }
+
+    /// Create an Outlook appointment using COM automation.
+    ///
+    /// Spawns a dedicated STA thread, creates Outlook.Application via COM,
+    /// sets appointment properties, adds attendees, and calls Display().
+    pub fn create_appointment(
+        subject: String,
+        start: String,
+        duration: u32,
+        location: String,
+        body: String,
+        attendees: Vec<String>,
+    ) -> Result<String, String> {
+        // Spawn a dedicated thread with its own COM apartment (STA)
+        let handle = std::thread::spawn(move || -> Result<String, String> {
+            unsafe {
+                // Initialize COM in single-threaded apartment mode
+                CoInitializeEx(None, COINIT_APARTMENTTHREADED)
+                    .map_err(|e| format!("CoInitializeEx fehlgeschlagen: {}", e))?;
+            }
+
+            let result =
+                create_appointment_inner(&subject, &start, duration, &location, &body, &attendees);
+
+            unsafe {
+                CoUninitialize();
+            }
+
+            result
+        });
+
+        handle
+            .join()
+            .map_err(|_| "COM-Thread ist unerwartet abgestuerzt".to_string())?
+    }
+
+    fn create_appointment_inner(
+        subject: &str,
+        start: &str,
+        duration: u32,
+        location: &str,
+        body: &str,
+        attendees: &[String],
+    ) -> Result<String, String> {
+        unsafe {
+            // Create Outlook.Application instance
+            let prog_id = to_wide("Outlook.Application");
+            let clsid = CLSIDFromProgID(PCWSTR(prog_id.as_ptr())).map_err(|e| {
+                format!(
+                    "Outlook ist nicht installiert oder nicht registriert: {}",
+                    e
+                )
+            })?;
+
+            let app: IDispatch = CoCreateInstance(&clsid, None, CLSCTX_LOCAL_SERVER)
+                .map_err(|e| format!("Outlook konnte nicht gestartet werden: {}", e))?;
+
+            // CreateItem(1) — 1 = olAppointmentItem
+            let mut args = [variant_i4(1)];
+            let item_var = invoke_method(&app, "CreateItem", &mut args)?;
+            let item = variant_to_dispatch(&item_var)?;
+
+            // Set Subject
+            if !subject.is_empty() {
+                put_property(&item, "Subject", &variant_bstr(subject))?;
+            }
+
+            // Set Start (VT_DATE)
+            let date_variant = variant_date(start)?;
+            put_property(&item, "Start", &date_variant)?;
+
+            // Set Duration
+            put_property(&item, "Duration", &variant_i4(duration as i32))?;
+
+            // Set Location
+            if !location.is_empty() {
+                put_property(&item, "Location", &variant_bstr(location))?;
+            }
+
+            // Set Body
+            if !body.is_empty() {
+                put_property(&item, "Body", &variant_bstr(body))?;
+            }
+
+            // Set MeetingStatus = 1 (olMeeting) if there are attendees
+            if !attendees.is_empty() {
+                put_property(&item, "MeetingStatus", &variant_i4(1))?;
+
+                // Get Recipients collection
+                let recipients_var = get_property(&item, "Recipients")?;
+                let recipients = variant_to_dispatch(&recipients_var)?;
+
+                // Add each attendee
+                for attendee in attendees {
+                    if !attendee.is_empty() {
+                        let mut add_args = [variant_bstr(attendee)];
+                        let recip_var = invoke_method(&recipients, "Add", &mut add_args)?;
+                        let recip = variant_to_dispatch(&recip_var)?;
+                        // Set Type = 1 (olRequired)
+                        put_property(&recip, "Type", &variant_i4(1))?;
+                    }
+                }
+
+                // Resolve all recipients
+                invoke_method(&recipients, "ResolveAll", &mut [])?;
+            }
+
+            // Display the appointment dialog
+            invoke_method(&item, "Display", &mut [])?;
+
+            Ok("Outlook-Termindialog geoeffnet".to_string())
+        }
+    }
 }
 
-/// Open an Outlook appointment dialog via PowerShell COM automation.
+/// Open an Outlook appointment dialog via COM automation (Windows only).
 ///
-/// This command resolves the bundled PowerShell script, writes all parameters
-/// to a temporary JSON file (avoiding all quoting/escaping issues with process
-/// argument lists), spawns `powershell -ExecutionPolicy Bypass -File ... <json_path>`,
-/// and waits up to 3 seconds for early failures (e.g. Outlook not installed).
-/// If the process is still running after 3s, we assume the Outlook dialog is
-/// open and return success (fire-and-forget).
+/// On Windows: spawns a dedicated STA thread and creates the appointment
+/// using direct COM calls to Outlook.Application. No temp files, no PowerShell.
 ///
-/// Only works on Windows with Outlook installed.
+/// On non-Windows: returns an error message.
 #[tauri::command]
-async fn open_outlook_appointment(
-    app: tauri::AppHandle,
+fn open_outlook_appointment(
     subject: String,
     start: String,
     duration: u32,
@@ -112,200 +415,46 @@ async fn open_outlook_appointment(
     body: Option<String>,
     attendees: Vec<String>,
 ) -> Result<OutlookCommandResult, String> {
-    // The PowerShell script logs to %TEMP%\calview-outlook.log
-    let log_file_path = std::env::temp_dir()
-        .join("calview-outlook.log")
-        .to_string_lossy()
-        .to_string();
-
     log::info!(
         "[outlook] open_outlook_appointment called: subject='{}', start='{}', duration={}, attendees={:?}",
         subject, start, duration, attendees
     );
 
-    // Step 1: Resolve the bundled PowerShell script path
-    let script_path = app
-        .path()
-        .resolve("resources/create-appointment.ps1", tauri::path::BaseDirectory::Resource)
-        .map_err(|e| format!("Failed to resolve script path: {}", e))?;
-
-    log::info!("[outlook] Resolved script path: {:?}", script_path);
-
-    if !script_path.exists() {
-        let msg = format!("PowerShell script not found at: {:?}", script_path);
-        log::error!("[outlook] {}", msg);
-        return Err(msg);
-    }
-
-    // Step 2: Write parameters to a temporary JSON file
-    // This avoids all quoting/escaping issues with process argument passing.
-    // Names with spaces, empty strings, and special characters all work correctly.
-    let params = OutlookParams {
-        subject,
-        start,
-        duration,
-        location: location.unwrap_or_default(),
-        body: body.unwrap_or_default(),
-        attendees: attendees
+    #[cfg(windows)]
+    {
+        let location = location.unwrap_or_default();
+        let body = body.unwrap_or_default();
+        let attendees: Vec<String> = attendees
             .into_iter()
             .map(|a| a.trim().to_string())
             .filter(|a| !a.is_empty())
-            .collect(),
-    };
+            .collect();
 
-    let params_json = serde_json::to_string_pretty(&params).map_err(|e| {
-        let msg = format!("Failed to serialize parameters to JSON: {}", e);
-        log::error!("[outlook] {}", msg);
-        msg
-    })?;
-
-    log::info!("[outlook] Parameters JSON:\n{}", params_json);
-
-    let params_file = std::env::temp_dir().join("calview-outlook-params.json");
-    let mut file = std::fs::File::create(&params_file).map_err(|e| {
-        let msg = format!("Failed to create temp params file at {:?}: {}", params_file, e);
-        log::error!("[outlook] {}", msg);
-        msg
-    })?;
-    file.write_all(params_json.as_bytes()).map_err(|e| {
-        let msg = format!("Failed to write params file: {}", e);
-        log::error!("[outlook] {}", msg);
-        msg
-    })?;
-    drop(file); // Ensure file is flushed and closed before PowerShell reads it
-
-    log::info!("[outlook] Wrote params file: {:?}", params_file);
-
-    let script_path_str = script_path.to_string_lossy().to_string();
-    let params_file_str = params_file.to_string_lossy().to_string();
-
-    // Step 3: Spawn PowerShell process
-    // Only argument to the script is the path to the JSON params file.
-    let mut cmd = Command::new("powershell");
-    cmd.args([
-        "-ExecutionPolicy",
-        "Bypass",
-        "-NoProfile",
-        "-NonInteractive",
-        "-File",
-        &script_path_str,
-        &params_file_str,
-    ]);
-    cmd.stdout(Stdio::piped());
-    cmd.stderr(Stdio::piped());
-
-    // On Windows, prevent a console window from flashing
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        // create_appointment spawns its own STA thread and joins it
+        match outlook_com::create_appointment(subject, start, duration, location, body, attendees) {
+            Ok(msg) => {
+                log::info!("[outlook] COM success: {}", msg);
+                Ok(OutlookCommandResult {
+                    status: "success".to_string(),
+                    message: msg,
+                })
+            }
+            Err(msg) => {
+                log::error!("[outlook] COM error: {}", msg);
+                Ok(OutlookCommandResult {
+                    status: "error".to_string(),
+                    message: msg,
+                })
+            }
+        }
     }
 
-    log::info!(
-        "[outlook] Spawning: powershell -ExecutionPolicy Bypass -NoProfile -NonInteractive -File \"{}\" \"{}\"",
-        script_path_str, params_file_str
-    );
-
-    let mut child = cmd.spawn().map_err(|e| {
-        let msg = format!("Failed to start PowerShell: {}", e);
-        log::error!("[outlook] {}", msg);
-        msg
-    })?;
-
-    log::info!("[outlook] PowerShell process spawned (pid: {:?})", child.id());
-
-    // Step 4: Fire-and-forget with 3 second timeout for early failures
-    //
-    // We spawn a thread that waits on the child process, then sleep 3 seconds
-    // on the current thread. If the child exits within that time, we read the
-    // output. Otherwise, we assume the Outlook dialog is open.
-
-    // Take ownership of stdout/stderr handles before moving child to thread
-    let child_stdout = child.stdout.take();
-    let child_stderr = child.stderr.take();
-
-    let handle = std::thread::spawn(move || child.wait());
-
-    // Wait 3 seconds for the process to potentially fail fast
-    std::thread::sleep(std::time::Duration::from_secs(3));
-
-    if handle.is_finished() {
-        // Process exited within 3 seconds — read output and check exit code
-        let wait_result = handle
-            .join()
-            .map_err(|_| "Thread panicked while waiting for PowerShell".to_string())?
-            .map_err(|e| format!("Failed to wait for PowerShell: {}", e))?;
-
-        let exit_code = wait_result.code().unwrap_or(-1);
-
-        // Read stdout and stderr
-        let mut stdout_str = String::new();
-        let mut stderr_str = String::new();
-        if let Some(mut out) = child_stdout {
-            let _ = out.read_to_string(&mut stdout_str);
-        }
-        if let Some(mut err) = child_stderr {
-            let _ = err.read_to_string(&mut stderr_str);
-        }
-
-        log::info!(
-            "[outlook] PowerShell exited quickly: code={}, stdout_len={}, stderr_len={}",
-            exit_code,
-            stdout_str.len(),
-            stderr_str.len()
-        );
-        log::info!("[outlook] stdout: {}", stdout_str.trim());
-        log::info!("[outlook] stderr: {}", stderr_str.trim());
-
-        if exit_code != 0 {
-            // Build a helpful error message including the log file path
-            let detail = if !stderr_str.trim().is_empty() {
-                stderr_str.trim().to_string()
-            } else if !stdout_str.trim().is_empty() {
-                stdout_str.trim().to_string()
-            } else {
-                format!("PowerShell exited with code {}", exit_code)
-            };
-
-            let error_msg = format!(
-                "{} (Details in Log-Datei: {})",
-                detail, log_file_path
-            );
-
-            log::error!("[outlook] PowerShell error: {}", error_msg);
-
-            return Ok(OutlookCommandResult {
-                status: "error".to_string(),
-                message: error_msg,
-                stdout: stdout_str,
-                stderr: stderr_str,
-                exit_code,
-                log_file: log_file_path,
-            });
-        }
-
-        // Exited with code 0 within 3s — unusual but OK (maybe Display() returned fast)
+    #[cfg(not(windows))]
+    {
+        let _ = (subject, start, duration, location, body, attendees);
         Ok(OutlookCommandResult {
-            status: "completed".to_string(),
-            message: "PowerShell script completed successfully".to_string(),
-            stdout: stdout_str,
-            stderr: stderr_str,
-            exit_code,
-            log_file: log_file_path,
-        })
-    } else {
-        // Process still running after 3s — the Outlook dialog is likely open
-        log::info!(
-            "[outlook] PowerShell still running after 3s — Outlook dialog is likely open"
-        );
-
-        Ok(OutlookCommandResult {
-            status: "dialog_opened".to_string(),
-            message: "Outlook dialog is open (process still running)".to_string(),
-            stdout: String::new(),
-            stderr: String::new(),
-            exit_code: -1,
-            log_file: log_file_path,
+            status: "error".to_string(),
+            message: "Outlook-Integration ist nur unter Windows verfuegbar".to_string(),
         })
     }
 }

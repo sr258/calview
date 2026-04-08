@@ -151,7 +151,7 @@
   border-radius: 3px;
   border-left: 3px solid var(--cal-event-color, var(--cv-primary));
   overflow: hidden;
-  cursor: default;
+  cursor: pointer;
   z-index: 1;
   transition: box-shadow 0.1s ease;
   /* Tiny gap so stacked events don't visually merge */

@@ -22,7 +22,6 @@
     }
   },
   "bundle": {
-    "resources": ["resources/create-appointment.ps1"],
     "windows": {
       "nsis": {
         "installMode": "currentUser"

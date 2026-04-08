@@ -1,14 +1,11 @@
 /**
  * Outlook appointment integration service.
  *
- * - In Tauri (Windows): invokes the Rust backend command which spawns
- *   a PowerShell script to open the Outlook appointment dialog.
+ * - In Tauri (Windows): invokes the Rust backend command which uses
+ *   direct COM automation to open the Outlook appointment dialog.
  * - In browser (dev): returns a "show_mock" result so the UI can
  *   display a mock dialog showing what would be sent to Outlook.
- * - On macOS/Linux in Tauri: PowerShell will fail to start; the error
- *   is returned to the frontend for display.
- *
- * Future: macOS/Linux could open Thunderbird or another mail client.
+ * - On macOS/Linux in Tauri: returns an error (Outlook not available).
  */
 
 import { isTauri } from "./http.js";
@@ -37,10 +34,6 @@ export interface OutlookFormattedParams {
 interface TauriOutlookResult {
   status: string;
   message: string;
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-  logFile: string;
 }
 
 /** Discriminated union of possible outcomes. */
@@ -103,10 +96,6 @@ export async function openOutlookAppointment(
     console.log("[outlook] Tauri command result:", {
       status: result.status,
       message: result.message,
-      exitCode: result.exitCode,
-      logFile: result.logFile,
-      stdout: result.stdout ? result.stdout.substring(0, 500) : "",
-      stderr: result.stderr ? result.stderr.substring(0, 500) : "",
     });
 
     if (result.status === "error") {
@@ -115,10 +104,7 @@ export async function openOutlookAppointment(
 
     return {
       type: "tauri_success",
-      message:
-        result.status === "dialog_opened"
-          ? "Outlook-Termindialog wird geöffnet..."
-          : "Outlook-Skript erfolgreich ausgeführt.",
+      message: "Outlook-Termindialog wird geöffnet...",
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
