@@ -40,6 +40,7 @@ interface TauriOutlookResult {
   stdout: string;
   stderr: string;
   exitCode: number;
+  logFile: string;
 }
 
 /** Discriminated union of possible outcomes. */
@@ -103,8 +104,9 @@ export async function openOutlookAppointment(
       status: result.status,
       message: result.message,
       exitCode: result.exitCode,
-      stdout: result.stdout ? result.stdout.substring(0, 200) : "",
-      stderr: result.stderr ? result.stderr.substring(0, 200) : "",
+      logFile: result.logFile,
+      stdout: result.stdout ? result.stdout.substring(0, 500) : "",
+      stderr: result.stderr ? result.stderr.substring(0, 500) : "",
     });
 
     if (result.status === "error") {

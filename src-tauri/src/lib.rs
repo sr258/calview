@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::io::Read as _;
+use std::io::Write as _;
 use std::process::{Command, Stdio};
 use tauri::Manager;
 
@@ -61,12 +62,6 @@ fn delete_credentials() -> Result<(), String> {
     }
 }
 
-/// Escape a string for use inside PowerShell single-quoted strings.
-/// In single-quoted strings, the only escape is '' for a literal '.
-fn escape_powershell_single_quote(s: &str) -> String {
-    s.replace('\'', "''")
-}
-
 /// Result returned from the open_outlook_appointment command.
 #[derive(Serialize)]
 struct OutlookCommandResult {
@@ -81,15 +76,30 @@ struct OutlookCommandResult {
     /// PowerShell exit code (-1 if still running or unknown)
     #[serde(rename = "exitCode")]
     exit_code: i32,
+    /// Path to the PowerShell log file for remote debugging
+    #[serde(rename = "logFile")]
+    log_file: String,
+}
+
+/// JSON structure written to the temp file for the PowerShell script.
+#[derive(Serialize)]
+struct OutlookParams {
+    subject: String,
+    start: String,
+    duration: u32,
+    location: String,
+    body: String,
+    attendees: Vec<String>,
 }
 
 /// Open an Outlook appointment dialog via PowerShell COM automation.
 ///
-/// This command resolves the bundled PowerShell script, spawns a
-/// `powershell -ExecutionPolicy Bypass -File ...` process, and waits
-/// up to 3 seconds for early failures (e.g. Outlook not installed).
-/// If the process is still running after 3s, we assume the Outlook
-/// dialog is open and return success (fire-and-forget).
+/// This command resolves the bundled PowerShell script, writes all parameters
+/// to a temporary JSON file (avoiding all quoting/escaping issues with process
+/// argument lists), spawns `powershell -ExecutionPolicy Bypass -File ... <json_path>`,
+/// and waits up to 3 seconds for early failures (e.g. Outlook not installed).
+/// If the process is still running after 3s, we assume the Outlook dialog is
+/// open and return success (fire-and-forget).
 ///
 /// Only works on Windows with Outlook installed.
 #[tauri::command]
@@ -102,9 +112,15 @@ async fn open_outlook_appointment(
     body: Option<String>,
     attendees: Vec<String>,
 ) -> Result<OutlookCommandResult, String> {
+    // The PowerShell script logs to %TEMP%\calview-outlook.log
+    let log_file_path = std::env::temp_dir()
+        .join("calview-outlook.log")
+        .to_string_lossy()
+        .to_string();
+
     log::info!(
-        "[outlook] open_outlook_appointment called: subject='{}', start='{}', duration={}, attendees={}",
-        subject, start, duration, attendees.len()
+        "[outlook] open_outlook_appointment called: subject='{}', start='{}', duration={}, attendees={:?}",
+        subject, start, duration, attendees
     );
 
     // Step 1: Resolve the bundled PowerShell script path
@@ -121,27 +137,50 @@ async fn open_outlook_appointment(
         return Err(msg);
     }
 
-    // Step 2: Build PowerShell arguments with proper escaping
-    let escaped_subject = escape_powershell_single_quote(&subject);
-    let escaped_location = escape_powershell_single_quote(location.as_deref().unwrap_or(""));
-    let escaped_body = escape_powershell_single_quote(body.as_deref().unwrap_or(""));
-    let escaped_attendees = escape_powershell_single_quote(
-        &attendees
-            .iter()
+    // Step 2: Write parameters to a temporary JSON file
+    // This avoids all quoting/escaping issues with process argument passing.
+    // Names with spaces, empty strings, and special characters all work correctly.
+    let params = OutlookParams {
+        subject,
+        start,
+        duration,
+        location: location.unwrap_or_default(),
+        body: body.unwrap_or_default(),
+        attendees: attendees
+            .into_iter()
             .map(|a| a.trim().to_string())
             .filter(|a| !a.is_empty())
-            .collect::<Vec<_>>()
-            .join(";"),
-    );
+            .collect(),
+    };
+
+    let params_json = serde_json::to_string_pretty(&params).map_err(|e| {
+        let msg = format!("Failed to serialize parameters to JSON: {}", e);
+        log::error!("[outlook] {}", msg);
+        msg
+    })?;
+
+    log::info!("[outlook] Parameters JSON:\n{}", params_json);
+
+    let params_file = std::env::temp_dir().join("calview-outlook-params.json");
+    let mut file = std::fs::File::create(&params_file).map_err(|e| {
+        let msg = format!("Failed to create temp params file at {:?}: {}", params_file, e);
+        log::error!("[outlook] {}", msg);
+        msg
+    })?;
+    file.write_all(params_json.as_bytes()).map_err(|e| {
+        let msg = format!("Failed to write params file: {}", e);
+        log::error!("[outlook] {}", msg);
+        msg
+    })?;
+    drop(file); // Ensure file is flushed and closed before PowerShell reads it
+
+    log::info!("[outlook] Wrote params file: {:?}", params_file);
 
     let script_path_str = script_path.to_string_lossy().to_string();
-
-    log::info!(
-        "[outlook] PowerShell args: -Subject '{}' -Start '{}' -Duration {} -Attendees '{}'",
-        escaped_subject, start, duration, escaped_attendees
-    );
+    let params_file_str = params_file.to_string_lossy().to_string();
 
     // Step 3: Spawn PowerShell process
+    // Only argument to the script is the path to the JSON params file.
     let mut cmd = Command::new("powershell");
     cmd.args([
         "-ExecutionPolicy",
@@ -150,18 +189,7 @@ async fn open_outlook_appointment(
         "-NonInteractive",
         "-File",
         &script_path_str,
-        "-Subject",
-        &format!("{}", escaped_subject),
-        "-Start",
-        &format!("{}", start),
-        "-Duration",
-        &format!("{}", duration),
-        "-Location",
-        &format!("{}", escaped_location),
-        "-Body",
-        &format!("{}", escaped_body),
-        "-Attendees",
-        &format!("{}", escaped_attendees),
+        &params_file_str,
     ]);
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
@@ -173,7 +201,10 @@ async fn open_outlook_appointment(
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
 
-    log::info!("[outlook] Spawning PowerShell process...");
+    log::info!(
+        "[outlook] Spawning: powershell -ExecutionPolicy Bypass -NoProfile -NonInteractive -File \"{}\" \"{}\"",
+        script_path_str, params_file_str
+    );
 
     let mut child = cmd.spawn().map_err(|e| {
         let msg = format!("Failed to start PowerShell: {}", e);
@@ -218,20 +249,28 @@ async fn open_outlook_appointment(
         }
 
         log::info!(
-            "[outlook] PowerShell exited quickly: code={}, stdout='{}', stderr='{}'",
+            "[outlook] PowerShell exited quickly: code={}, stdout_len={}, stderr_len={}",
             exit_code,
-            stdout_str.trim(),
-            stderr_str.trim()
+            stdout_str.len(),
+            stderr_str.len()
         );
+        log::info!("[outlook] stdout: {}", stdout_str.trim());
+        log::info!("[outlook] stderr: {}", stderr_str.trim());
 
         if exit_code != 0 {
-            let error_msg = if !stderr_str.trim().is_empty() {
+            // Build a helpful error message including the log file path
+            let detail = if !stderr_str.trim().is_empty() {
                 stderr_str.trim().to_string()
             } else if !stdout_str.trim().is_empty() {
                 stdout_str.trim().to_string()
             } else {
                 format!("PowerShell exited with code {}", exit_code)
             };
+
+            let error_msg = format!(
+                "{} (Details in Log-Datei: {})",
+                detail, log_file_path
+            );
 
             log::error!("[outlook] PowerShell error: {}", error_msg);
 
@@ -241,6 +280,7 @@ async fn open_outlook_appointment(
                 stdout: stdout_str,
                 stderr: stderr_str,
                 exit_code,
+                log_file: log_file_path,
             });
         }
 
@@ -251,6 +291,7 @@ async fn open_outlook_appointment(
             stdout: stdout_str,
             stderr: stderr_str,
             exit_code,
+            log_file: log_file_path,
         })
     } else {
         // Process still running after 3s — the Outlook dialog is likely open
@@ -264,6 +305,7 @@ async fn open_outlook_appointment(
             stdout: String::new(),
             stderr: String::new(),
             exit_code: -1,
+            log_file: log_file_path,
         })
     }
 }
