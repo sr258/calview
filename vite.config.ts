@@ -1,9 +1,10 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import preact from "@preact/preset-vite";
+import licensesPlugin from "./plugins/vite-plugin-licenses.js";
 
 export default defineConfig({
-  plugins: [preact()],
+  plugins: [preact(), licensesPlugin()],
   server: {
     proxy: {
       "/api/caldav": {

@@ -2,6 +2,8 @@
 name = "calview"
 version = "1.0.0"
 edition = "2021"
+license = "EUPL-1.2"
+authors = ["Sebastian Rettig <serettig@posteo.de>"]
 
 [lib]
 name = "calview_lib"

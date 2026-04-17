@@ -837,7 +837,92 @@ body {
 /* ─── About Dialog ──────────────────────────────────────────────────────── */
 
 .about-dialog {
-  max-width: 440px;
+  max-width: 600px;
+}
+
+.license-list {
+  font-size: var(--cv-font-s);
+}
+
+.license-entry {
+  border-bottom: 1px solid var(--cv-contrast-10);
+}
+
+.license-entry summary {
+  display: flex;
+  align-items: center;
+  padding: var(--cv-space-xs) 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.license-entry summary::-webkit-details-marker {
+  display: none;
+}
+
+.license-entry summary::before {
+  content: "\25b6";
+  font-size: 0.6em;
+  margin-right: var(--cv-space-xs);
+  display: inline-flex;
+  align-items: center;
+  transition: transform 0.15s;
+}
+
+.license-entry[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.license-name {
+  font-weight: 500;
+}
+
+.license-id {
+  color: var(--cv-text-secondary);
+  font-size: var(--cv-font-xs);
+  flex-shrink: 0;
+  margin-right: var(--cv-space-xs);
+}
+
+.license-spacer {
+  flex: 1;
+}
+
+.license-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  color: var(--cv-text-secondary);
+  flex-shrink: 0;
+  transition: color 0.15s, background 0.15s;
+}
+
+.license-link:hover {
+  color: var(--cv-primary);
+  background: var(--cv-contrast-5, #f5f5f5);
+}
+
+.license-text {
+  margin: 0 0 var(--cv-space-s) 0;
+  padding: var(--cv-space-xs);
+  background: var(--cv-contrast-5, #f5f5f5);
+  border-radius: 4px;
+  font-size: var(--cv-font-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+  text-align: left;
+}
+
+.license-text-missing {
+  color: var(--cv-text-secondary);
+  font-style: italic;
+  text-align: center;
 }
 
 .about-dialog-body {
