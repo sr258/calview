@@ -82,9 +82,7 @@ const CALENDAR_QUERY_XML_TEMPLATE = `<?xml version="1.0" encoding="UTF-8"?>
                   xmlns:c="urn:ietf:params:xml:ns:caldav">
   <d:prop>
     <d:getetag/>
-    <c:calendar-data>
-      <c:expand start="{{START}}" end="{{END}}"/>
-    </c:calendar-data>
+    <c:calendar-data/>
   </d:prop>
   <c:filter>
     <c:comp-filter name="VCALENDAR">
@@ -241,7 +239,9 @@ export function parsePrincipalSearchResponse(xml: string): CalDavUser[] {
  */
 export function parseCalendarQueryResponse(
   xml: string,
-  accessible: boolean
+  accessible: boolean,
+  rangeStart?: string,
+  rangeEnd?: string
 ): CalDavEvent[] {
   const events: CalDavEvent[] = [];
   try {
@@ -270,7 +270,7 @@ export function parseCalendarQueryResponse(
         continue;
       }
 
-      events.push(...parseICalendarData(calendarData, accessible));
+      events.push(...parseICalendarData(calendarData, accessible, rangeStart, rangeEnd));
     }
   } catch (e) {
     if (e instanceof CalDavError) {
@@ -665,7 +665,7 @@ export async function fetchWeekEvents(
         password,
         reportXml
       );
-      events = parseCalendarQueryResponse(responseBody, true);
+      events = parseCalendarQueryResponse(responseBody, true, weekStart, weekEnd);
     } catch (e) {
       if (
         e instanceof CalDavError &&

@@ -22,6 +22,7 @@ import {
 import {
   parseICalendarData,
   parseFreeBusyResponse,
+  expandRRule,
 } from "./ical-parser.js";
 import { CalDavError } from "../model/types.js";
 
@@ -552,6 +553,180 @@ END:VCALENDAR`;
     expect(events[0].startTime).toBeNull();
     expect(events[0].endTime).toBeNull();
   });
+
+  it("filters out deleted occurrences via EXDATE", () => {
+    const ical = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART:20250210T100000Z
+RRULE:FREQ=WEEKLY;COUNT=3
+EXDATE:20250217T100000Z
+SUMMARY:Weekly Meeting
+UID:recurring-exdate@example.com
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20250210T100000Z
+DTEND:20250210T110000Z
+SUMMARY:Weekly Meeting
+RECURRENCE-ID:20250210T100000Z
+UID:recurring-exdate@example.com
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20250217T100000Z
+DTEND:20250217T110000Z
+SUMMARY:Weekly Meeting
+RECURRENCE-ID:20250217T100000Z
+UID:recurring-exdate@example.com
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20250224T100000Z
+DTEND:20250224T110000Z
+SUMMARY:Weekly Meeting
+RECURRENCE-ID:20250224T100000Z
+UID:recurring-exdate@example.com
+END:VEVENT
+END:VCALENDAR`;
+
+    const events = parseICalendarData(ical, true);
+
+    // The Feb 17 occurrence should be excluded by EXDATE
+    expect(events).toHaveLength(3);
+    expect(events[0].date).toBe("2025-02-10");
+    expect(events[1].date).toBe("2025-02-10");
+    expect(events[2].date).toBe("2025-02-24");
+    // 2025-02-17 should NOT appear
+    const feb17 = events.find((e) => e.date === "2025-02-17");
+    expect(feb17).toBeUndefined();
+  });
+
+  it("filters out deleted all-day occurrences via EXDATE with VALUE=DATE", () => {
+    const ical = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART;VALUE=DATE:20250210
+RRULE:FREQ=DAILY;COUNT=3
+EXDATE;VALUE=DATE:20250211
+SUMMARY:Daily Event
+UID:allday-exdate@example.com
+END:VEVENT
+BEGIN:VEVENT
+DTSTART;VALUE=DATE:20250210
+DTEND;VALUE=DATE:20250211
+SUMMARY:Daily Event
+RECURRENCE-ID;VALUE=DATE:20250210
+UID:allday-exdate@example.com
+END:VEVENT
+BEGIN:VEVENT
+DTSTART;VALUE=DATE:20250211
+DTEND;VALUE=DATE:20250212
+SUMMARY:Daily Event
+RECURRENCE-ID;VALUE=DATE:20250211
+UID:allday-exdate@example.com
+END:VEVENT
+BEGIN:VEVENT
+DTSTART;VALUE=DATE:20250212
+DTEND;VALUE=DATE:20250213
+SUMMARY:Daily Event
+RECURRENCE-ID;VALUE=DATE:20250212
+UID:allday-exdate@example.com
+END:VEVENT
+END:VCALENDAR`;
+
+    const events = parseICalendarData(ical, true);
+
+    // Feb 11 should be excluded
+    const feb11 = events.find((e) => e.date === "2025-02-11");
+    expect(feb11).toBeUndefined();
+    expect(events.some((e) => e.date === "2025-02-10")).toBe(true);
+    expect(events.some((e) => e.date === "2025-02-12")).toBe(true);
+  });
+
+  it("filters out multiple EXDATE values (comma-separated)", () => {
+    const ical = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART:20250210T100000Z
+RRULE:FREQ=WEEKLY;COUNT=4
+EXDATE:20250217T100000Z,20250303T100000Z
+SUMMARY:Weekly
+UID:multi-exdate@example.com
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20250210T100000Z
+DTEND:20250210T110000Z
+SUMMARY:Weekly
+RECURRENCE-ID:20250210T100000Z
+UID:multi-exdate@example.com
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20250217T100000Z
+DTEND:20250217T110000Z
+SUMMARY:Weekly
+RECURRENCE-ID:20250217T100000Z
+UID:multi-exdate@example.com
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20250224T100000Z
+DTEND:20250224T110000Z
+SUMMARY:Weekly
+RECURRENCE-ID:20250224T100000Z
+UID:multi-exdate@example.com
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20250303T100000Z
+DTEND:20250303T110000Z
+SUMMARY:Weekly
+RECURRENCE-ID:20250303T100000Z
+UID:multi-exdate@example.com
+END:VEVENT
+END:VCALENDAR`;
+
+    const events = parseICalendarData(ical, true);
+
+    // Feb 17 and Mar 3 should be excluded
+    expect(events.find((e) => e.date === "2025-02-17")).toBeUndefined();
+    expect(events.find((e) => e.date === "2025-03-03")).toBeUndefined();
+    expect(events.some((e) => e.date === "2025-02-10")).toBe(true);
+    expect(events.some((e) => e.date === "2025-02-24")).toBe(true);
+  });
+
+  it("filters out cancelled occurrences via STATUS:CANCELLED", () => {
+    const ical = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART:20250210T100000Z
+DTEND:20250210T110000Z
+SUMMARY:Weekly Meeting
+RECURRENCE-ID:20250210T100000Z
+STATUS:CONFIRMED
+UID:recurring-cancel@example.com
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20250217T100000Z
+DTEND:20250217T110000Z
+SUMMARY:Weekly Meeting
+RECURRENCE-ID:20250217T100000Z
+STATUS:CANCELLED
+UID:recurring-cancel@example.com
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20250224T100000Z
+DTEND:20250224T110000Z
+SUMMARY:Weekly Meeting
+RECURRENCE-ID:20250224T100000Z
+STATUS:CONFIRMED
+UID:recurring-cancel@example.com
+END:VEVENT
+END:VCALENDAR`;
+
+    const events = parseICalendarData(ical, true);
+
+    expect(events).toHaveLength(2);
+    expect(events[0].date).toBe("2025-02-10");
+    expect(events[1].date).toBe("2025-02-24");
+    // Feb 17 (CANCELLED) should NOT appear
+    expect(events.find((e) => e.date === "2025-02-17")).toBeUndefined();
+  });
 });
 
 // =========================================================================
@@ -655,5 +830,276 @@ describe("validation", () => {
     await expect(
       searchUsers("", "user", "pass", "test")
     ).rejects.toThrow(/URL darf nicht leer/);
+  });
+});
+
+// =========================================================================
+// RRULE expansion tests
+// =========================================================================
+
+describe("expandRRule", () => {
+  it("expands FREQ=DAILY within range", () => {
+    const results = expandRRule(
+      "20250210T100000Z",
+      "FREQ=DAILY",
+      new Set(),
+      "2025-02-10",
+      "2025-02-14"
+    );
+    expect(results).toEqual([
+      "20250210T100000Z",
+      "20250211T100000Z",
+      "20250212T100000Z",
+      "20250213T100000Z",
+    ]);
+  });
+
+  it("expands FREQ=DAILY with COUNT limit", () => {
+    const results = expandRRule(
+      "20250210T100000Z",
+      "FREQ=DAILY;COUNT=3",
+      new Set(),
+      "2025-02-10",
+      "2025-02-17"
+    );
+    expect(results).toHaveLength(3);
+    expect(results[0]).toBe("20250210T100000Z");
+    expect(results[2]).toBe("20250212T100000Z");
+  });
+
+  it("expands FREQ=DAILY with UNTIL limit", () => {
+    const results = expandRRule(
+      "20250210T100000Z",
+      "FREQ=DAILY;UNTIL=20250212T235959Z",
+      new Set(),
+      "2025-02-10",
+      "2025-02-17"
+    );
+    expect(results).toHaveLength(3);
+    expect(results[2]).toBe("20250212T100000Z");
+  });
+
+  it("expands FREQ=DAILY with INTERVAL=2", () => {
+    const results = expandRRule(
+      "20250210T100000Z",
+      "FREQ=DAILY;INTERVAL=2",
+      new Set(),
+      "2025-02-10",
+      "2025-02-17"
+    );
+    // Feb 10, 12, 14, 16
+    expect(results).toEqual([
+      "20250210T100000Z",
+      "20250212T100000Z",
+      "20250214T100000Z",
+      "20250216T100000Z",
+    ]);
+  });
+
+  it("excludes EXDATE occurrences", () => {
+    const exdates = new Set(["20250211T100000"]);
+    const results = expandRRule(
+      "20250210T100000Z",
+      "FREQ=DAILY;COUNT=3",
+      exdates,
+      "2025-02-10",
+      "2025-02-17"
+    );
+    // Feb 10, (11 excluded), 12
+    expect(results).toHaveLength(2);
+    expect(results[0]).toBe("20250210T100000Z");
+    expect(results[1]).toBe("20250212T100000Z");
+  });
+
+  it("excludes EXDATE by date-only match", () => {
+    const exdates = new Set(["20250211"]);
+    const results = expandRRule(
+      "20250210T100000Z",
+      "FREQ=DAILY;COUNT=3",
+      exdates,
+      "2025-02-10",
+      "2025-02-17"
+    );
+    expect(results).toHaveLength(2);
+    expect(results.find((r) => r.includes("20250211"))).toBeUndefined();
+  });
+
+  it("expands FREQ=WEEKLY within range", () => {
+    const results = expandRRule(
+      "20250210T100000Z", // Monday
+      "FREQ=WEEKLY",
+      new Set(),
+      "2025-02-10",
+      "2025-02-24"
+    );
+    expect(results).toEqual([
+      "20250210T100000Z",
+      "20250217T100000Z",
+    ]);
+  });
+
+  it("expands FREQ=WEEKLY with BYDAY", () => {
+    const results = expandRRule(
+      "20250210T100000Z", // Monday
+      "FREQ=WEEKLY;BYDAY=MO,WE,FR",
+      new Set(),
+      "2025-02-10",
+      "2025-02-17"
+    );
+    // Week of Feb 10: MO=10, WE=12, FR=14
+    expect(results).toHaveLength(3);
+    expect(results[0]).toBe("20250210T100000Z");
+    expect(results[1]).toBe("20250212T100000Z");
+    expect(results[2]).toBe("20250214T100000Z");
+  });
+
+  it("expands FREQ=WEEKLY;BYDAY with COUNT spanning weeks", () => {
+    const results = expandRRule(
+      "20250210T100000Z",
+      "FREQ=WEEKLY;BYDAY=MO,FR;COUNT=5",
+      new Set(),
+      "2025-02-10",
+      "2025-02-28"
+    );
+    // MO Feb 10, FR Feb 14, MO Feb 17, FR Feb 21, MO Feb 24
+    expect(results).toHaveLength(5);
+    expect(results[0]).toBe("20250210T100000Z");
+    expect(results[1]).toBe("20250214T100000Z");
+    expect(results[2]).toBe("20250217T100000Z");
+    expect(results[3]).toBe("20250221T100000Z");
+    expect(results[4]).toBe("20250224T100000Z");
+  });
+
+  it("expands FREQ=MONTHLY", () => {
+    const results = expandRRule(
+      "20250110T100000Z",
+      "FREQ=MONTHLY;COUNT=3",
+      new Set(),
+      "2025-01-01",
+      "2025-04-01"
+    );
+    expect(results).toHaveLength(3);
+    expect(results[0]).toBe("20250110T100000Z");
+    expect(results[1]).toBe("20250210T100000Z");
+    expect(results[2]).toBe("20250310T100000Z");
+  });
+
+  it("returns only occurrences within range (master before range)", () => {
+    const results = expandRRule(
+      "20250201T100000Z",
+      "FREQ=DAILY",
+      new Set(),
+      "2025-02-10",
+      "2025-02-13"
+    );
+    expect(results).toHaveLength(3);
+    expect(results[0]).toBe("20250210T100000Z");
+    expect(results[1]).toBe("20250211T100000Z");
+    expect(results[2]).toBe("20250212T100000Z");
+  });
+
+  it("handles date-only (all-day) events", () => {
+    const results = expandRRule(
+      "20250210",
+      "FREQ=DAILY;COUNT=3",
+      new Set(),
+      "2025-02-10",
+      "2025-02-17"
+    );
+    expect(results).toHaveLength(3);
+    expect(results[0]).toBe("20250210");
+    expect(results[1]).toBe("20250211");
+    expect(results[2]).toBe("20250212");
+  });
+});
+
+// =========================================================================
+// RRULE expansion integration via parseICalendarData
+// =========================================================================
+
+describe("parseICalendarData with RRULE expansion", () => {
+  it("expands a daily recurring event within range", () => {
+    const ical = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART:20250210T100000Z
+DTEND:20250210T110000Z
+SUMMARY:Daily Standup
+RRULE:FREQ=DAILY;COUNT=5
+UID:daily@example.com
+END:VEVENT
+END:VCALENDAR`;
+
+    const events = parseICalendarData(ical, true, "2025-02-10", "2025-02-17");
+    expect(events).toHaveLength(5);
+    expect(events[0].date).toBe("2025-02-10");
+    expect(events[0].startTime).toBe("10:00");
+    expect(events[0].endTime).toBe("11:00");
+    expect(events[4].date).toBe("2025-02-14");
+  });
+
+  it("excludes EXDATE from recurring expansion", () => {
+    const ical = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART:20250210T100000Z
+DTEND:20250210T110000Z
+SUMMARY:Daily Standup
+RRULE:FREQ=DAILY;COUNT=5
+EXDATE:20250212T100000Z
+UID:daily@example.com
+END:VEVENT
+END:VCALENDAR`;
+
+    const events = parseICalendarData(ical, true, "2025-02-10", "2025-02-17");
+    expect(events).toHaveLength(4);
+    expect(events.find((e) => e.date === "2025-02-12")).toBeUndefined();
+  });
+
+  it("applies RECURRENCE-ID override to expanded event", () => {
+    const ical = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART:20250210T100000Z
+DTEND:20250210T110000Z
+SUMMARY:Weekly Meeting
+RRULE:FREQ=WEEKLY;COUNT=3
+UID:weekly@example.com
+END:VEVENT
+BEGIN:VEVENT
+DTSTART:20250217T140000Z
+DTEND:20250217T150000Z
+SUMMARY:Weekly Meeting (Rescheduled)
+RECURRENCE-ID:20250217T100000Z
+UID:weekly@example.com
+END:VEVENT
+END:VCALENDAR`;
+
+    const events = parseICalendarData(ical, true, "2025-02-10", "2025-02-28");
+    // Feb 10 (master), Feb 17 override replaces master occurrence, Feb 24 (master)
+    expect(events).toHaveLength(3);
+    // The override should have the rescheduled time
+    const feb17 = events.find((e) => e.date === "2025-02-17");
+    expect(feb17).toBeDefined();
+    expect(feb17!.startTime).toBe("14:00");
+    expect(feb17!.summary).toBe("Weekly Meeting (Rescheduled)");
+  });
+
+  it("without range params, treats master as single event (legacy)", () => {
+    const ical = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART:20250210T100000Z
+DTEND:20250210T110000Z
+SUMMARY:Recurring
+RRULE:FREQ=DAILY;COUNT=100
+UID:rec@example.com
+END:VEVENT
+END:VCALENDAR`;
+
+    const events = parseICalendarData(ical, true);
+    // Without range, master is treated as single event
+    expect(events).toHaveLength(1);
+    expect(events[0].date).toBe("2025-02-10");
   });
 });
