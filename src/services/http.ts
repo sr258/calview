@@ -82,6 +82,43 @@ function rewriteUrlForProxy(url: string): string {
 }
 
 /**
+ * Wraps a promise with a timeout. Rejects with a descriptive error if
+ * the promise does not settle within `ms` milliseconds.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("Zeitüberschreitung: Der Server hat nicht rechtzeitig geantwortet.")),
+      ms
+    );
+    promise.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
+/**
+ * Translates low-level network errors into user-friendly German messages.
+ */
+function humanizeNetworkError(e: unknown): Error {
+  if (e instanceof Error) {
+    const msg = e.message.toLowerCase();
+    if (e.name === "AbortError" || msg.includes("aborted") || msg.includes("timeout")) {
+      return new Error("Zeitüberschreitung: Der Server hat nicht rechtzeitig geantwortet.");
+    }
+    if (msg.includes("failed to fetch") || msg.includes("networkerror") || msg.includes("network")
+        || msg.includes("dns") || msg.includes("econnrefused") || msg.includes("enotfound")) {
+      return new Error("Server nicht erreichbar. Bitte URL und Netzwerkverbindung überprüfen.");
+    }
+    if (msg.includes("ssl") || msg.includes("tls") || msg.includes("certificate")) {
+      return new Error("TLS/SSL-Fehler. Aktivieren Sie ggf. die Option \"Ungültige TLS-Zertifikate akzeptieren\".");
+    }
+  }
+  return e instanceof Error ? e : new Error(String(e));
+}
+
+/**
  * Sends an HTTP request, automatically choosing the right transport:
  * - In Tauri: uses @tauri-apps/plugin-http fetch (bypasses CORS)
  * - In browser/dev: uses native fetch() via Vite dev proxy
@@ -100,7 +137,7 @@ export async function httpRequest(
     return response;
   } catch (e) {
     console.error("[http] httpRequest: %s %s -> FAILED:", options.method, options.url, e);
-    throw e;
+    throw humanizeNetworkError(e);
   }
 }
 
@@ -112,17 +149,20 @@ export async function httpRequest(
 async function tauriFetch(options: HttpRequestOptions): Promise<HttpResponse> {
   const { fetch: tauriFetchFn } = await import("@tauri-apps/plugin-http");
 
-  const response = await tauriFetchFn(options.url, {
-    method: options.method,
-    headers: options.headers,
-    body: options.body,
-    connectTimeout: REQUEST_TIMEOUT_MS,
-    ...(_acceptInvalidCerts
-      ? { danger: { acceptInvalidCerts: true, acceptInvalidHostnames: true } }
-      : {}),
-  });
+  const response = await withTimeout(
+    tauriFetchFn(options.url, {
+      method: options.method,
+      headers: options.headers,
+      body: options.body,
+      connectTimeout: REQUEST_TIMEOUT_MS,
+      ...(_acceptInvalidCerts
+        ? { danger: { acceptInvalidCerts: true, acceptInvalidHostnames: true } }
+        : {}),
+    }),
+    REQUEST_TIMEOUT_MS
+  );
 
-  const body = await response.text();
+  const body = await withTimeout(response.text(), REQUEST_TIMEOUT_MS);
 
   const headers: Record<string, string> = {};
   response.headers.forEach((value, key) => {

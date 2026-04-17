@@ -27,7 +27,7 @@ import { ScheduleGrid } from "./components/schedule-grid.js";
 import { CalendarView } from "./components/calendar-view.js";
 import { OutlookMockDialog } from "./components/outlook-mock-dialog.js";
 import { Notifications, type NotificationVariant } from "./components/notifications.js";
-import { initializeApp, activeView } from "./state/app-state.js";
+import { initializeApp, activeView, initializing } from "./state/app-state.js";
 import {
   openOutlookAppointment,
   type OutlookAppointmentParams,
@@ -112,17 +112,24 @@ export function App() {
       <HelpDialog open={showHelp} onClose={() => setShowHelp(false)} />
       <AboutDialog open={showAbout} onClose={() => setShowAbout(false)} />
 
-      <div class="app-content">
-        <UserSearch />
-        <FavoritesList />
-        <div class="week-nav-row">
-          <WeekNavigator />
-          <ViewSwitcher />
+      {initializing.value ? (
+        <div class="app-initializing">
+          <div class="app-initializing-spinner" />
+          <span>Verbindung wird hergestellt…</span>
         </div>
-        {activeView.value === "table"
-          ? <ScheduleGrid onSlotClick={handleSlotClick} />
-          : <CalendarView onSlotClick={handleSlotClick} />}
-      </div>
+      ) : (
+        <div class="app-content">
+          <UserSearch />
+          <FavoritesList />
+          <div class="week-nav-row">
+            <WeekNavigator />
+            <ViewSwitcher />
+          </div>
+          {activeView.value === "table"
+            ? <ScheduleGrid onSlotClick={handleSlotClick} />
+            : <CalendarView onSlotClick={handleSlotClick} />}
+        </div>
+      )}
 
       <OutlookMockDialog
         params={mockDialogParams}

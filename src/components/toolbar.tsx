@@ -15,6 +15,7 @@ import {
   connection,
   showLoginDialog,
   disconnect,
+  initializing,
 } from "../state/app-state.js";
 
 export interface ToolbarProps {
@@ -72,7 +73,11 @@ export function Toolbar({ onOpenHelp, onOpenAbout }: ToolbarProps) {
               : "var(--cv-text-secondary)",
           }}
         >
-          {isConnected ? `Verbunden als ${username}` : "Nicht verbunden"}
+          {initializing.value
+            ? "Verbinde…"
+            : isConnected
+              ? `Verbunden als ${username}`
+              : "Nicht verbunden"}
         </span>
         {isConnected ? (
           <button

@@ -694,6 +694,28 @@ body {
   opacity: 1;
 }
 
+/* ─── App Initializing Spinner ──────────────────────────────────────────── */
+
+.app-initializing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: var(--cv-space-m);
+  color: var(--cv-text-secondary);
+  font-size: var(--cv-font-s);
+}
+
+.app-initializing-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--cv-contrast-10);
+  border-top-color: var(--cv-primary);
+  border-radius: 50%;
+  animation: cv-spin 0.6s linear infinite;
+}
+
 /* ─── Empty State ───────────────────────────────────────────────────────── */
 
 .schedule-empty {
