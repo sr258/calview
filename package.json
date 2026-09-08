@@ -14,18 +14,18 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@preact/signals": "^2.8.1",
+    "@preact/signals": "^2.11.2",
     "@tauri-apps/api": "^2.10.1",
-    "@tauri-apps/plugin-http": "^2.5.7",
-    "preact": "^10.28.4"
+    "@tauri-apps/plugin-http": "^2.6.0",
+    "preact": "^10.29.8"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.3",
-    "@tauri-apps/cli": "^2.10.0",
-    "@types/node": "^25.6.0",
-    "jsdom": "^28.1.0",
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/node": "^26.4.1",
+    "jsdom": "^30.0.1",
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
-    "vitest": "^4.0.18"
+    "vitest": "^5.0.0"
   }
 }
