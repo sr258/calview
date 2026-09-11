@@ -20,7 +20,7 @@
     "preact": "^10.29.8"
   },
   "devDependencies": {
-    "@preact/preset-vite": "^2.10.3",
+    "@preact/preset-vite": "^2.10.6",
     "@tauri-apps/cli": "^2.11.4",
     "@types/node": "^26.5.0",
     "jsdom": "^30.0.1",
