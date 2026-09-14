@@ -29,7 +29,7 @@
  */
 
 import { useState, useEffect, useRef } from "preact/hooks";
-import type { ScheduleRow, CalDavUser, CalDavEvent, MergedCell } from "../model/types.js";
+import type { ScheduleRow, CalDavUser, EventWithOwner, MergedCell } from "../model/types.js";
 import type { OutlookAppointmentParams } from "../services/outlook.js";
 import {
   scheduleRows,
@@ -87,7 +87,7 @@ function getCurrentTime(): string {
 
 export interface ScheduleGridProps {
   onSlotClick?: (params: OutlookAppointmentParams) => void;
-  onEventClick?: (events: CalDavEvent[]) => void;
+  onEventClick?: (entries: EventWithOwner[]) => void;
 }
 
 export function ScheduleGrid({ onSlotClick, onEventClick }: ScheduleGridProps) {
@@ -346,7 +346,7 @@ interface ScheduleBodyProps {
   favorites: CalDavUser[];
   todayDayIdx: number;
   onSlotClick?: (params: OutlookAppointmentParams) => void;
-  onEventClick?: (events: CalDavEvent[]) => void;
+  onEventClick?: (entries: EventWithOwner[]) => void;
 }
 
 function ScheduleBody({ rows, timeSlots, failedUsers, favorites, todayDayIdx, onSlotClick, onEventClick }: ScheduleBodyProps) {
@@ -377,7 +377,7 @@ interface ScheduleRowProps {
   isFavorite: boolean;
   isLastRow: boolean;
   onSlotClick?: (params: OutlookAppointmentParams) => void;
-  onEventClick?: (events: CalDavEvent[]) => void;
+  onEventClick?: (entries: EventWithOwner[]) => void;
 }
 
 function ScheduleRowComponent({
@@ -401,8 +401,8 @@ function ScheduleRowComponent({
     // Clicking an existing appointment shows its details instead of
     // opening the "new event" dialog.
     if (cell.slot.busy) {
-      if (onEventClick && cell.slot.events && cell.slot.events.length > 0) {
-        onEventClick(cell.slot.events);
+      if (onEventClick && row.user && cell.slot.events && cell.slot.events.length > 0) {
+        onEventClick(cell.slot.events.map((event) => ({ user: row.user!, event })));
       }
       return;
     }

@@ -6,12 +6,12 @@
  * pattern as LoginDialog / OutlookMockDialog for visual consistency.
  */
 
-import type { CalDavEvent } from "../model/types.js";
+import type { EventWithOwner } from "../model/types.js";
 import { formatTimeForDisplay } from "../model/schedule.js";
 
 export interface EventDetailsDialogProps {
-  /** The event(s) to display, or null to hide the dialog. Multiple when several events overlap the clicked slot. */
-  events: CalDavEvent[] | null;
+  /** The event(s) to display (each paired with its calendar owner), or null to hide the dialog. */
+  entries: EventWithOwner[] | null;
   /** Called when the user closes the dialog. */
   onClose: () => void;
 }
@@ -40,7 +40,7 @@ function statusLabel(status: string): string {
   }
 }
 
-function EventDetailsEntry({ event }: { event: CalDavEvent }) {
+function EventDetailsEntry({ user, event }: EventWithOwner) {
   const timeRange =
     event.startTime && event.endTime
       ? `${formatTimeForDisplay(event.startTime)} – ${formatTimeForDisplay(event.endTime)} Uhr`
@@ -48,6 +48,11 @@ function EventDetailsEntry({ event }: { event: CalDavEvent }) {
 
   return (
     <div class="outlook-mock-field-group">
+      <div class="outlook-mock-field">
+        <span class="outlook-mock-label">Kalender von:</span>
+        <span class="outlook-mock-value">{user.displayName}</span>
+      </div>
+
       <div class="outlook-mock-field">
         <span class="outlook-mock-label">Betreff:</span>
         <span class="outlook-mock-value">
@@ -69,12 +74,54 @@ function EventDetailsEntry({ event }: { event: CalDavEvent }) {
         <span class="outlook-mock-label">Status:</span>
         <span class="outlook-mock-value">{statusLabel(event.status)}</span>
       </div>
+
+      {event.location && (
+        <div class="outlook-mock-field">
+          <span class="outlook-mock-label">Ort:</span>
+          <span class="outlook-mock-value">{event.location}</span>
+        </div>
+      )}
+
+      {event.organizer && (
+        <div class="outlook-mock-field">
+          <span class="outlook-mock-label">Organisator:</span>
+          <span class="outlook-mock-value">{event.organizer}</span>
+        </div>
+      )}
+
+      {event.attendees && event.attendees.length > 0 && (
+        <div class="outlook-mock-field">
+          <span class="outlook-mock-label">Teilnehmer:</span>
+          <span class="outlook-mock-value">{event.attendees.join(", ")}</span>
+        </div>
+      )}
+
+      {event.description && (
+        <div class="outlook-mock-field">
+          <span class="outlook-mock-label">Beschreibung:</span>
+          <span class="outlook-mock-value outlook-mock-value-multiline">{event.description}</span>
+        </div>
+      )}
+
+      {event.accessible && !event.organizer && (!event.attendees || event.attendees.length === 0) && (
+        <div class="outlook-mock-hint">
+          Für diesen Termin sind keine weiteren Details (Organisator, Teilnehmer, Ort,
+          Beschreibung) im Kalender hinterlegt.
+        </div>
+      )}
+
+      {!event.accessible && (
+        <div class="outlook-mock-hint">
+          Für diesen Kalender ist nur die Frei/Belegt-Zeit sichtbar — Betreff,
+          Organisator, Teilnehmer und weitere Details liegen nicht vor.
+        </div>
+      )}
     </div>
   );
 }
 
-export function EventDetailsDialog({ events, onClose }: EventDetailsDialogProps) {
-  if (!events || events.length === 0) {
+export function EventDetailsDialog({ entries, onClose }: EventDetailsDialogProps) {
+  if (!entries || entries.length === 0) {
     return null;
   }
 
@@ -98,8 +145,8 @@ export function EventDetailsDialog({ events, onClose }: EventDetailsDialogProps)
         </div>
 
         <div class="login-dialog-body">
-          {events.map((event, i) => (
-            <EventDetailsEntry key={i} event={event} />
+          {entries.map((entry, i) => (
+            <EventDetailsEntry key={i} user={entry.user} event={entry.event} />
           ))}
         </div>
 

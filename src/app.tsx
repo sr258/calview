@@ -34,7 +34,7 @@ import {
   type OutlookAppointmentParams,
   type OutlookFormattedParams,
 } from "./services/outlook.js";
-import type { CalDavEvent } from "./model/types.js";
+import type { EventWithOwner } from "./model/types.js";
 
 interface ToastMessage {
   id: number;
@@ -47,7 +47,7 @@ let nextToastId = 0;
 export function App() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [mockDialogParams, setMockDialogParams] = useState<OutlookFormattedParams | null>(null);
-  const [detailsEvents, setDetailsEvents] = useState<CalDavEvent[] | null>(null);
+  const [detailsEvents, setDetailsEvents] = useState<EventWithOwner[] | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
 
@@ -106,8 +106,8 @@ export function App() {
     [showNotification],
   );
 
-  const handleEventClick = useCallback((events: CalDavEvent[]) => {
-    setDetailsEvents(events);
+  const handleEventClick = useCallback((entries: EventWithOwner[]) => {
+    setDetailsEvents(entries);
   }, []);
 
   return (
@@ -144,7 +144,7 @@ export function App() {
       />
 
       <EventDetailsDialog
-        events={detailsEvents}
+        entries={detailsEvents}
         onClose={() => setDetailsEvents(null)}
       />
 

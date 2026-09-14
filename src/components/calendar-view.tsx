@@ -26,7 +26,7 @@ import {
   formatTimeForDisplay,
   getCssClassForEvent,
 } from "../model/schedule.js";
-import type { CalDavEvent, PositionedEvent } from "../model/types.js";
+import type { EventWithOwner, PositionedEvent } from "../model/types.js";
 import type { OutlookAppointmentParams } from "../services/outlook.js";
 
 /** Schedule start hour (matches SCHEDULE_START "07:00"). */
@@ -84,7 +84,7 @@ function getUserColor(userIndex: number): string {
 
 export interface CalendarViewProps {
   onSlotClick?: (params: OutlookAppointmentParams) => void;
-  onEventClick?: (events: CalDavEvent[]) => void;
+  onEventClick?: (entries: EventWithOwner[]) => void;
 }
 
 export function CalendarView({ onSlotClick, onEventClick }: CalendarViewProps) {
@@ -168,7 +168,7 @@ interface DayColumnProps {
   isToday: boolean;
   nowTop: number;
   onSlotClick?: (params: OutlookAppointmentParams) => void;
-  onEventClick?: (events: CalDavEvent[]) => void;
+  onEventClick?: (entries: EventWithOwner[]) => void;
 }
 
 function CalendarDayColumn({ dayIdx, weekStart, users, events, failed, isToday, nowTop, onSlotClick, onEventClick }: DayColumnProps) {
@@ -264,7 +264,7 @@ function CalendarDayColumn({ dayIdx, weekStart, users, events, failed, isToday, 
 
 interface CalendarEventBlockProps {
   pe: PositionedEvent;
-  onEventClick?: (events: CalDavEvent[]) => void;
+  onEventClick?: (entries: EventWithOwner[]) => void;
 }
 
 function CalendarEventBlock({ pe, onEventClick }: CalendarEventBlockProps) {
@@ -307,7 +307,7 @@ function CalendarEventBlock({ pe, onEventClick }: CalendarEventBlockProps) {
       title={tooltip}
       onClick={(e: MouseEvent) => {
         e.stopPropagation();
-        onEventClick?.([event]);
+        onEventClick?.([{ user, event }]);
       }}
     >
       <div class="cal-event-inner">

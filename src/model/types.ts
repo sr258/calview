@@ -33,6 +33,12 @@ export interface CalDavUser {
  * @property status - the visibility/class of the event (e.g. "PUBLIC", "PRIVATE", "CONFIDENTIAL",
  *                    "BUSY", "BUSY-TENTATIVE", "BUSY-UNAVAILABLE")
  * @property accessible - whether the event details are visible to the current user
+ * @property location - the LOCATION property value, or null if absent or inaccessible
+ * @property description - the DESCRIPTION property value, or null if absent or inaccessible
+ * @property organizer - the organizer's display name (from ORGANIZER's CN, falling back to the
+ *                       mailto address), or null if absent or inaccessible
+ * @property attendees - display names of all attendees (from ATTENDEE's CN, falling back to the
+ *                       mailto address); empty for inaccessible (free-busy-only) events
  */
 export interface CalDavEvent {
   summary: string | null;
@@ -41,6 +47,10 @@ export interface CalDavEvent {
   endTime: string | null;
   status: string;
   accessible: boolean;
+  location?: string | null;
+  description?: string | null;
+  organizer?: string | null;
+  attendees?: string[];
 }
 
 /**
@@ -108,6 +118,15 @@ export interface MergedCell {
   isFirstSlotOfDay: boolean;
   dayIdx: number;
   endsAtFullHour: boolean;
+}
+
+/**
+ * Pairs an event with the calendar user (owner) it belongs to, for display
+ * in the event details popup.
+ */
+export interface EventWithOwner {
+  user: CalDavUser;
+  event: CalDavEvent;
 }
 
 /**

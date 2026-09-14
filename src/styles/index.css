@@ -756,6 +756,10 @@ body {
   word-break: break-word;
 }
 
+.outlook-mock-value-multiline {
+  white-space: pre-line;
+}
+
 .outlook-mock-field-group + .outlook-mock-field-group {
   margin-top: var(--cv-space-m);
   padding-top: var(--cv-space-m);
