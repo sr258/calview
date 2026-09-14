@@ -57,6 +57,7 @@ function makeEvent(overrides: Partial<CalDavEvent> = {}): CalDavEvent {
   return {
     summary: "Test Event",
     date: "2025-02-10",
+    endDate: overrides.date ?? "2025-02-10",
     startTime: "10:00",
     endTime: "11:00",
     status: "PUBLIC",
@@ -148,6 +149,54 @@ describe("filterEventsForDay", () => {
     const filtered = filterEventsForDay(events, "2025-02-11");
 
     expect(filtered).toHaveLength(0);
+  });
+
+  it("includes a multi-day event on every day it spans", () => {
+    const events = [
+      makeEvent({ date: "2025-02-10", endDate: "2025-02-12" }),
+    ];
+
+    expect(filterEventsForDay(events, "2025-02-09")).toHaveLength(0);
+    expect(filterEventsForDay(events, "2025-02-10")).toHaveLength(1);
+    expect(filterEventsForDay(events, "2025-02-11")).toHaveLength(1);
+    expect(filterEventsForDay(events, "2025-02-12")).toHaveLength(1);
+    expect(filterEventsForDay(events, "2025-02-13")).toHaveLength(0);
+  });
+
+  it("clamps a multi-day timed event to each day it spans", () => {
+    const events = [
+      makeEvent({
+        date: "2025-02-10",
+        endDate: "2025-02-12",
+        startTime: "17:00",
+        endTime: "09:00",
+      }),
+    ];
+
+    const first = filterEventsForDay(events, "2025-02-10")[0];
+    expect(first.startTime).toBe("17:00");
+    expect(first.endTime).toBe("23:59");
+
+    const middle = filterEventsForDay(events, "2025-02-11")[0];
+    expect(middle.startTime).toBe("00:00");
+    expect(middle.endTime).toBe("23:59");
+
+    const last = filterEventsForDay(events, "2025-02-12")[0];
+    expect(last.startTime).toBe("00:00");
+    expect(last.endTime).toBe("09:00");
+  });
+
+  it("leaves all-day and single-day events untouched", () => {
+    const allDay = makeEvent({
+      date: "2025-02-10",
+      endDate: "2025-02-12",
+      startTime: null,
+      endTime: null,
+    });
+    const singleDay = makeEvent({ date: "2025-02-10", endDate: "2025-02-10" });
+
+    expect(filterEventsForDay([allDay], "2025-02-11")[0]).toBe(allDay);
+    expect(filterEventsForDay([singleDay], "2025-02-10")[0]).toBe(singleDay);
   });
 });
 
