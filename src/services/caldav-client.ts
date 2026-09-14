@@ -72,8 +72,9 @@ const PRINCIPAL_SEARCH_BY_NAME_XML_TEMPLATE = `<?xml version="1.0" encoding="UTF
 
 /**
  * XML template for a REPORT calendar-query that fetches VEVENT data
- * within a time range. Uses <c:expand> (RFC 4791 Section 9.6.5) to instruct
- * the server to expand recurring events into individual instances.
+ * within a time range. The query does not use <c:expand>; recurring events
+ * are returned as masters plus overrides and expanded client-side by
+ * expandRRule() in ical-parser.ts.
  *
  * Ported from: CalDavClient.java CALENDAR_QUERY_XML_TEMPLATE lines 271-289
  */

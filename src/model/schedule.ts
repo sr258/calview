@@ -20,6 +20,11 @@ export const SCHEDULE_START = "07:00";
 /** Schedule end time (exclusive). */
 export const SCHEDULE_END = "19:00";
 
+/** First and last representable time of a calendar day, used to clamp
+ *  multi-day events to the day they are rendered on. */
+export const DAY_START = "00:00";
+export const DAY_END = "23:59";
+
 /** Duration of each time slot in minutes. */
 export const SLOT_MINUTES = 5;
 
@@ -84,6 +89,12 @@ export function generateSlotKeys(): string[] {
 /**
  * Filters events to those occurring on a specific day.
  *
+ * Multi-day events are returned as the fragment that falls on `dayDate`:
+ * their start and end times are clamped to the day boundaries, so a
+ * 17:00 → 09:00 overnight event yields "17:00 – 23:59" on the first day and
+ * "00:00 – 09:00" on the second instead of a nonsensical 17:00 – 09:00 block
+ * on both.
+ *
  * Ported from: CalDavView.java filterEventsForDay() lines 604-608
  *
  * @param events  all events for the user in the current week
@@ -93,7 +104,24 @@ export function filterEventsForDay(
   events: CalDavEvent[],
   dayDate: string
 ): CalDavEvent[] {
-  return events.filter((e) => e.date <= dayDate && e.endDate >= dayDate);
+  return events
+    .filter((e) => e.date <= dayDate && e.endDate >= dayDate)
+    .map((e) => clampEventToDay(e, dayDate));
+}
+
+/**
+ * Returns the portion of an event that falls on `dayDate`. Single-day and
+ * all-day events (null times) are returned unchanged.
+ */
+function clampEventToDay(event: CalDavEvent, dayDate: string): CalDavEvent {
+  if (event.date === event.endDate) return event;
+  if (event.startTime === null || event.endTime === null) return event;
+
+  const startTime = event.date === dayDate ? event.startTime : DAY_START;
+  const endTime = event.endDate === dayDate ? event.endTime : DAY_END;
+  if (startTime === event.startTime && endTime === event.endTime) return event;
+
+  return { ...event, startTime, endTime };
 }
 
 /**

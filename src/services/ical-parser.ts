@@ -8,6 +8,7 @@
  */
 
 import type { CalDavEvent } from "../model/types.js";
+import { addDays } from "../model/schedule.js";
 
 // ─── iCalendar property patterns ─────────────────────────────────────────────
 // Ported from CalDavClient.java lines 421-426
@@ -180,45 +181,46 @@ export function parseICalendarData(
 
         // Create event from master properties with adjusted date/time
         const date = parseICalDate(occDtstart);
+        if (date === null) continue;
+
         const startTime = parseICalTime(occDtstart);
         let endTime: string | null = null;
         let endDate = date;
 
-        // Compute end time/date from master's duration or DTEND offset
-        if (master.dtend !== null) {
-          const masterIsDateOnly = !master.dtstart.includes("T");
-          if (masterIsDateOnly) {
-            // All-day (possibly multi-day) event: carry the master's day span
-            // over to this occurrence.
-            const masterStartDate = parseICalDate(master.dtstart);
-            const masterEndDateRaw = parseICalDate(master.dtend);
-            if (date !== null && masterStartDate !== null && masterEndDateRaw !== null) {
-              // DTEND for all-day events is exclusive per RFC 5545.
-              const masterEndDateInclusive = addDaysToISODate(masterEndDateRaw, -1);
-              const spanDays = daysBetweenISODates(masterStartDate, masterEndDateInclusive);
-              endDate = addDaysToISODate(date, spanDays);
-            }
-          } else if (startTime !== null) {
-            const masterStartTime = parseICalTime(master.dtstart);
-            const masterEndTime = parseICalTime(master.dtend);
-            if (masterStartTime !== null && masterEndTime !== null) {
-              // Compute duration from master and apply to occurrence
-              const startMins = parseTimeToMinutes(masterStartTime);
-              const endMins = parseTimeToMinutes(masterEndTime);
-              const durationMins = endMins - startMins;
-              const occStartMins = parseTimeToMinutes(startTime);
-              endTime = formatMinutesToTime(occStartMins + durationMins);
-            }
+        // Carry the master's day span (all-day, multi-day or overnight) over
+        // to this occurrence.
+        const masterStartDate = parseICalDate(master.dtstart);
+        if (masterStartDate !== null) {
+          const masterEndDate = computeEndDate(
+            master.dtstart,
+            master.dtend,
+            master.duration,
+            masterStartDate
+          );
+          const spanDays = daysBetweenISODates(masterStartDate, masterEndDate);
+          if (spanDays > 0) endDate = addDays(date, spanDays);
+        }
+
+        // Compute end time from the master's DTEND offset or DURATION
+        if (master.dtend !== null && startTime !== null) {
+          const masterStartTime = parseICalTime(master.dtstart);
+          const masterEndTime = parseICalTime(master.dtend);
+          if (masterStartTime !== null && masterEndTime !== null) {
+            // Compute duration from master and apply to occurrence. An end
+            // time before the start time means the event runs past midnight.
+            const startMins = parseTimeToMinutes(masterStartTime);
+            const endMins = parseTimeToMinutes(masterEndTime);
+            const durationMins = (endMins - startMins + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+            const occStartMins = parseTimeToMinutes(startTime);
+            endTime = formatMinutesToTime(occStartMins + durationMins);
           }
         } else if (master.duration !== null && startTime !== null) {
           endTime = parseDurationEndTime(startTime, master.duration.trim());
         }
 
-        if (date === null) continue;
-
         const status = master.classValue !== null ? master.classValue.trim() : "PUBLIC";
         const ev = makeEvent(
-          master.summary, date, endDate ?? date, startTime, endTime, status, accessible,
+          master.summary, date, endDate, startTime, endTime, status, accessible,
           master.location, master.description, master.organizer, master.attendees
         );
         events.push(ev);
@@ -279,7 +281,7 @@ function entryToEvent(
 
   if (date === null) return null;
 
-  const endDate = computeEndDate(entry.dtstart, entry.dtend, date);
+  const endDate = computeEndDate(entry.dtstart, entry.dtend, entry.duration, date);
 
   return makeEvent(
     entry.summary, date, endDate, startTime, endTime, status, accessible,
@@ -289,30 +291,74 @@ function entryToEvent(
 
 /**
  * Computes the inclusive last day of an event's span as an ISO date string.
- * All-day (date-only) DTEND values are exclusive per RFC 5545, so they are
- * shifted back by one day to obtain the last day the event actually occupies.
+ *
+ * Both DTEND and DURATION describe an *exclusive* end per RFC 5545, so the
+ * last day actually occupied is one day earlier whenever the end falls on a
+ * day boundary (a date-only DTEND, or a date-time DTEND at exactly midnight).
+ * The result is never earlier than `startDate`, so degenerate events with
+ * DTEND == DTSTART still occupy their start day.
  */
 function computeEndDate(
   dtstart: string,
   dtend: string | null,
+  duration: string | null,
   startDate: string
 ): string {
-  if (dtend === null) return startDate;
-
-  const endDateRaw = parseICalDate(dtend);
-  if (endDateRaw === null) return startDate;
-
   const isDateOnly = !dtstart.includes("T");
-  return isDateOnly ? addDaysToISODate(endDateRaw, -1) : endDateRaw;
+
+  if (dtend !== null) {
+    const endDateRaw = parseICalDate(dtend);
+    if (endDateRaw === null) return startDate;
+
+    // A date-only end, or a date-time end at exactly midnight, is the first
+    // day *after* the event.
+    const endsOnDayBoundary = isDateOnly || (parseICalTime(dtend) ?? "00:00") === "00:00";
+    const inclusive = endsOnDayBoundary ? addDays(endDateRaw, -1) : endDateRaw;
+    return inclusive < startDate ? startDate : inclusive;
+  }
+
+  if (duration !== null) {
+    const durationMins = parseDurationMinutes(duration.trim());
+    if (durationMins === null || durationMins <= 0) return startDate;
+
+    const startMins = isDateOnly ? 0 : parseTimeToMinutes(parseICalTime(dtstart) ?? "00:00");
+    // Exclusive end instant, expressed in minutes from midnight of the start day.
+    const endMins = startMins + durationMins;
+    // Subtract one minute so an end exactly on a day boundary stays on the
+    // previous day.
+    return addDays(startDate, Math.floor((endMins - 1) / MINUTES_PER_DAY));
+  }
+
+  return startDate;
 }
 
+/** Minutes in a day. */
+const MINUTES_PER_DAY = 24 * 60;
+
 /**
- * Adds (or subtracts) days from an ISO date string "YYYY-MM-DD".
+ * Parses an ISO 8601 / RFC 5545 duration ("P1D", "P2W", "PT1H30M", "P1DT2H")
+ * into total minutes. Returns null if the duration cannot be parsed.
  */
-function addDaysToISODate(isoDate: string, days: number): string {
-  const d = new Date(isoDate + "T00:00:00Z");
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().substring(0, 10);
+export function parseDurationMinutes(duration: string): number | null {
+  const match =
+    /^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(
+      duration
+    );
+  if (!match || match[0] === "P") {
+    console.warn("Failed to parse duration:", duration);
+    return null;
+  }
+
+  const [, sign, weeks, days, hours, minutes, seconds] = match;
+  const num = (v: string | undefined): number => (v ? parseInt(v, 10) : 0);
+  const total =
+    num(weeks) * 7 * MINUTES_PER_DAY +
+    num(days) * MINUTES_PER_DAY +
+    num(hours) * 60 +
+    num(minutes) +
+    Math.floor(num(seconds) / 60);
+
+  return sign === "-" ? -total : total;
 }
 
 /**
@@ -695,13 +741,16 @@ export function parseFreeBusyResponse(icalBody: string): CalDavEvent[] {
       }
 
       let endTime: string | null;
-      let endDate = date;
+      let endDate: string;
       if (endOrDuration.startsWith("P")) {
         // ISO 8601 duration like PT1H, PT30M, PT1H30M
         endTime = parseDurationEndTime(startTime, endOrDuration);
+        endDate = computeEndDate(startStr, null, endOrDuration, date);
       } else {
         endTime = parseICalTime(endOrDuration);
-        endDate = parseICalDate(endOrDuration) ?? date;
+        // The period end is exclusive, so a block ending at midnight does not
+        // occupy the following day.
+        endDate = computeEndDate(startStr, endOrDuration, null, date);
       }
 
       events.push({
@@ -806,35 +855,17 @@ export function parseDurationEndTime(
     return null;
   }
 
-  try {
-    // Parse the start time "HH:mm" into minutes
-    const [startHours, startMinutes] = startTime.split(":").map(Number);
-    let totalMinutes = startHours * 60 + startMinutes;
-
-    // Parse ISO 8601 duration: PT1H, PT30M, PT1H30M
-    const durationMatch = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(
-      duration
-    );
-    if (!durationMatch) {
-      console.warn("Failed to parse duration:", duration);
-      return null;
-    }
-
-    const durationHours = durationMatch[1] ? parseInt(durationMatch[1], 10) : 0;
-    const durationMinutes = durationMatch[2]
-      ? parseInt(durationMatch[2], 10)
-      : 0;
-
-    totalMinutes += durationHours * 60 + durationMinutes;
-
-    const endHours = Math.floor(totalMinutes / 60) % 24;
-    const endMinutes = totalMinutes % 60;
-
-    return `${String(endHours).padStart(2, "0")}:${String(endMinutes).padStart(2, "0")}`;
-  } catch {
-    console.warn("Failed to parse duration:", duration);
+  const durationMinutes = parseDurationMinutes(duration);
+  if (durationMinutes === null) {
     return null;
   }
+
+  // Wrap into the day of the end instant; the day span is tracked separately
+  // via the event's endDate.
+  const totalMinutes = parseTimeToMinutes(startTime) + durationMinutes;
+  const wrapped = ((totalMinutes % MINUTES_PER_DAY) + MINUTES_PER_DAY) % MINUTES_PER_DAY;
+
+  return formatMinutesToTime(wrapped);
 }
 
 /**
