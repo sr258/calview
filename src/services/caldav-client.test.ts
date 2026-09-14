@@ -22,6 +22,7 @@ import {
 import {
   parseICalendarData,
   parseFreeBusyResponse,
+  parseDurationMinutes,
   expandRRule,
 } from "./ical-parser.js";
 import { CalDavError } from "../model/types.js";
@@ -306,6 +307,8 @@ END:VCALENDAR`;
     expect(events).toHaveLength(1);
     expect(events[0].date).toBe("2025-02-10");
     expect(events[0].endDate).toBe("2025-02-10");
+    // The exclusive midnight end is the end of 02-10, not the start of it.
+    expect(events[0].endTime).toBe("23:59");
   });
 
   it("spans an overnight busy period across both days", () => {
@@ -767,6 +770,47 @@ END:VCALENDAR`;
     expect(events[0].endTime).toBe("02:00");
   });
 
+  it("keeps an event ending exactly at midnight on its start day", () => {
+    const ical = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART:20250210T220000Z
+DTEND:20250211T000000Z
+SUMMARY:Closing Shift
+UID:midnight@example.com
+END:VEVENT
+END:VCALENDAR`;
+
+    const events = parseICalendarData(ical, true);
+
+    expect(events).toHaveLength(1);
+    expect(events[0].date).toBe("2025-02-10");
+    expect(events[0].endDate).toBe("2025-02-10");
+    expect(events[0].startTime).toBe("22:00");
+    // Midnight is the *end* of 02-10; kept as "00:00" the event would compare
+    // as ending before it starts and occupy no slot at all.
+    expect(events[0].endTime).toBe("23:59");
+  });
+
+  it("keeps a multi-day event ending at midnight busy on its last day", () => {
+    const ical = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART:20250210T220000Z
+DTEND:20250212T000000Z
+SUMMARY:Long Shift
+UID:midnight-multiday@example.com
+END:VEVENT
+END:VCALENDAR`;
+
+    const events = parseICalendarData(ical, true);
+
+    expect(events).toHaveLength(1);
+    expect(events[0].date).toBe("2025-02-10");
+    expect(events[0].endDate).toBe("2025-02-11");
+    expect(events[0].endTime).toBe("23:59");
+  });
+
   it("expands an all-day RRULE master over a date range", () => {
     // Exercises the masters-with-range branch (no RECURRENCE-ID overrides).
     const ical = `BEGIN:VCALENDAR
@@ -1115,6 +1159,27 @@ describe("validation", () => {
 });
 
 // =========================================================================
+// Duration parsing tests
+// =========================================================================
+
+describe("parseDurationMinutes", () => {
+  it("parses week, day, hour, minute and second components", () => {
+    expect(parseDurationMinutes("P2W")).toBe(2 * 7 * 24 * 60);
+    expect(parseDurationMinutes("P1DT2H")).toBe(24 * 60 + 120);
+    expect(parseDurationMinutes("PT1H30M")).toBe(90);
+    expect(parseDurationMinutes("-PT30M")).toBe(-30);
+  });
+
+  it("rejects durations without any numeric component", () => {
+    // These match the grammar but carry no duration; returning 0 would produce
+    // a zero-length, invisible event instead of a parse failure.
+    expect(parseDurationMinutes("P")).toBeNull();
+    expect(parseDurationMinutes("PT")).toBeNull();
+    expect(parseDurationMinutes("nonsense")).toBeNull();
+  });
+});
+
+// =========================================================================
 // RRULE expansion tests
 // =========================================================================
 
@@ -1364,6 +1429,49 @@ END:VCALENDAR`;
     expect(feb17).toBeDefined();
     expect(feb17!.startTime).toBe("14:00");
     expect(feb17!.summary).toBe("Weekly Meeting (Rescheduled)");
+  });
+
+  it("keeps a recurring overnight occurrence starting before the range", () => {
+    // Sun 17:00 → Mon 09:00, weekly. The occurrence relevant to the week of
+    // Feb 10 starts on Sun Feb 9, i.e. before the range start.
+    const ical = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART:20250202T170000Z
+DTEND:20250203T090000Z
+SUMMARY:Night Shift
+RRULE:FREQ=WEEKLY
+UID:weekly-overnight@example.com
+END:VEVENT
+END:VCALENDAR`;
+
+    const events = parseICalendarData(ical, true, "2025-02-10", "2025-02-17");
+
+    const feb9 = events.find((e) => e.date === "2025-02-09");
+    expect(feb9).toBeDefined();
+    expect(feb9!.endDate).toBe("2025-02-10");
+    expect(feb9!.startTime).toBe("17:00");
+    expect(feb9!.endTime).toBe("09:00");
+  });
+
+  it("keeps a recurring multi-day all-day occurrence starting before the range", () => {
+    // Sat + 3 days, weekly: the Feb 8 occurrence runs into Mon Feb 10.
+    const ical = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART;VALUE=DATE:20250208
+DURATION:P3D
+SUMMARY:Weekend Retreat
+RRULE:FREQ=WEEKLY
+UID:weekly-multiday@example.com
+END:VEVENT
+END:VCALENDAR`;
+
+    const events = parseICalendarData(ical, true, "2025-02-10", "2025-02-17");
+
+    const feb8 = events.find((e) => e.date === "2025-02-08");
+    expect(feb8).toBeDefined();
+    expect(feb8!.endDate).toBe("2025-02-10");
   });
 
   it("without range params, treats master as single event (legacy)", () => {

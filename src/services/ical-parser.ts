@@ -8,7 +8,7 @@
  */
 
 import type { CalDavEvent } from "../model/types.js";
-import { addDays } from "../model/schedule.js";
+import { addDays, DAY_END } from "../model/schedule.js";
 
 // ─── iCalendar property patterns ─────────────────────────────────────────────
 // Ported from CalDavClient.java lines 421-426
@@ -160,11 +160,23 @@ export function parseICalendarData(
   // Expand master VEVENTs (those with RRULE)
   for (const master of masters) {
     if (rangeStart && rangeEnd) {
+      // The master's day span (all-day, multi-day or overnight) is carried over
+      // to every occurrence. Expand from `spanDays` before the range start so
+      // occurrences that begin before the range but still reach into it are
+      // not dropped.
+      const masterStartDate = parseICalDate(master.dtstart);
+      const spanDays = masterStartDate !== null
+        ? daysBetweenISODates(
+            masterStartDate,
+            computeEndDate(master.dtstart, master.dtend, master.duration, masterStartDate)
+          )
+        : 0;
+
       const occurrences = expandRRule(
         master.dtstart,
         master.rrule!,
         exdates,
-        rangeStart,
+        spanDays > 0 ? addDays(rangeStart, -spanDays) : rangeStart,
         rangeEnd
       );
 
@@ -185,21 +197,7 @@ export function parseICalendarData(
 
         const startTime = parseICalTime(occDtstart);
         let endTime: string | null = null;
-        let endDate = date;
-
-        // Carry the master's day span (all-day, multi-day or overnight) over
-        // to this occurrence.
-        const masterStartDate = parseICalDate(master.dtstart);
-        if (masterStartDate !== null) {
-          const masterEndDate = computeEndDate(
-            master.dtstart,
-            master.dtend,
-            master.duration,
-            masterStartDate
-          );
-          const spanDays = daysBetweenISODates(masterStartDate, masterEndDate);
-          if (spanDays > 0) endDate = addDays(date, spanDays);
-        }
+        const endDate = spanDays > 0 ? addDays(date, spanDays) : date;
 
         // Compute end time from the master's DTEND offset or DURATION
         if (master.dtend !== null && startTime !== null) {
@@ -344,7 +342,9 @@ export function parseDurationMinutes(duration: string): number | null {
     /^([+-])?P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/.exec(
       duration
     );
-  if (!match || match[0] === "P") {
+  // A match with no numeric component at all ("P", "PT", "-P") is degenerate:
+  // the regex accepts it, but it carries no duration.
+  if (!match || match.slice(2).every((group) => group === undefined)) {
     console.warn("Failed to parse duration:", duration);
     return null;
   }
@@ -386,16 +386,22 @@ function makeEvent(
   organizer: string | null = null,
   attendees: string[] = []
 ): CalDavEvent {
+  // An end time of exactly midnight belongs to the *end* of `endDate`, not its
+  // start: computeEndDate() has already rolled the day back for such ends, so
+  // the fragment on `endDate` runs to the last representable minute of the day.
+  // Left as-is it would compare as "00:00", making the event overlap no slot.
+  const end = startTime !== null && endTime === "00:00" ? DAY_END : endTime;
+
   if (accessible) {
     return {
       summary: summary !== null ? summary.trim() : "(Kein Titel)",
-      date, endDate, startTime, endTime, status, accessible: true,
+      date, endDate, startTime, endTime: end, status, accessible: true,
       location, description, organizer, attendees,
     };
   }
   return {
     summary: null,
-    date, endDate, startTime, endTime, status, accessible: false,
+    date, endDate, startTime, endTime: end, status, accessible: false,
   };
 }
 
@@ -753,15 +759,9 @@ export function parseFreeBusyResponse(icalBody: string): CalDavEvent[] {
         endDate = computeEndDate(startStr, endOrDuration, null, date);
       }
 
-      events.push({
-        summary: null,
-        date,
-        endDate,
-        startTime,
-        endTime,
-        status: fbType,
-        accessible: false,
-      });
+      events.push(
+        makeEvent(null, date, endDate, startTime, endTime, fbType, false)
+      );
     }
   }
 
