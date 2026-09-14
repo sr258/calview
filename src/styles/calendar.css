@@ -253,11 +253,9 @@
   text-overflow: ellipsis;
 }
 
-.cal-event-time-inline {
-  font-size: var(--cv-font-xxs);
-  font-weight: 400;
-  color: var(--cv-text-secondary);
-  margin-right: 4px;
+.cal-event-time-short,
+.cal-event-label-short {
+  font-size: 0.5625rem; /* 9px */
 }
 
 

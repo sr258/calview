@@ -247,6 +247,12 @@ export function buildTooltip(
       if (event.startTime !== null && event.endTime !== null) {
         line += ` (${formatTimeForDisplay(event.startTime)} - ${formatTimeForDisplay(event.endTime)})`;
       }
+      if (event.location) {
+        line += `\nOrt: ${event.location}`;
+      }
+      if (event.attendees && event.attendees.length > 0) {
+        line += `\nTeilnehmer: ${event.attendees.join(", ")}`;
+      }
       lines.push(line);
     } else {
       // Free-busy only

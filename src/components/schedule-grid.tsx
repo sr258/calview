@@ -399,8 +399,10 @@ function ScheduleRowComponent({
    */
   const handleSlotClick = (e: MouseEvent, cell: MergedCell) => {
     // Clicking an existing appointment shows its details instead of
-    // opening the "new event" dialog.
-    if (cell.slot.busy) {
+    // opening the "new event" dialog. This only applies to per-user rows;
+    // the summary row's "busy" state just means "not everyone is free" and
+    // should still allow creating a new appointment.
+    if (!isSummaryRow && cell.slot.busy) {
       if (onEventClick && row.user && cell.slot.events && cell.slot.events.length > 0) {
         onEventClick(cell.slot.events.map((event) => ({ user: row.user!, event })));
       }
