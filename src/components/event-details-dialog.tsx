@@ -30,12 +30,22 @@ function formatDateForDisplay(isoDate: string): string {
 
 function statusLabel(status: string): string {
   switch (status) {
+    // Free-busy status (FBTYPE)
     case "BUSY-TENTATIVE":
       return "Vorläufig";
     case "BUSY-UNAVAILABLE":
       return "Abwesend";
     case "BUSY":
       return "Belegt";
+    case "FREE":
+      return "Frei";
+    // Visibility class (CLASS) of accessible events
+    case "PUBLIC":
+      return "Öffentlich";
+    case "PRIVATE":
+      return "Privat";
+    case "CONFIDENTIAL":
+      return "Vertraulich";
     default:
       return status;
   }
