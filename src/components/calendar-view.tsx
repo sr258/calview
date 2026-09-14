@@ -299,10 +299,18 @@ function CalendarEventBlock({ pe }: { pe: PositionedEvent }) {
       title={tooltip}
     >
       <div class="cal-event-inner">
-        {!isShort && <div class="cal-event-time">{timeStr}</div>}
-        <div class="cal-event-label">{label}</div>
-        {!isShort && (
-          <div class="cal-event-user">{user.displayName}</div>
+        {isShort ? (
+          <div class="cal-event-label">
+            {timeStr && (
+              <span class="cal-event-time-inline">{timeStr}</span>
+            )}
+            {label}
+          </div>
+        ) : (
+          <>
+            <div class="cal-event-time">{timeStr}</div>
+            <div class="cal-event-label">{label}</div>
+          </>
         )}
       </div>
     </div>
