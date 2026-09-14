@@ -236,10 +236,14 @@ body {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
   width: 100%;
   max-width: 420px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 
 .login-dialog-header {
+  flex-shrink: 0;
   padding: var(--cv-space-m) var(--cv-space-l);
   border-bottom: 1px solid var(--cv-contrast-10);
 }
@@ -254,9 +258,11 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--cv-space-m);
+  overflow-y: auto;
 }
 
 .login-dialog-footer {
+  flex-shrink: 0;
   padding: var(--cv-space-m) var(--cv-space-l);
   border-top: 1px solid var(--cv-contrast-10);
   display: flex;
@@ -754,6 +760,16 @@ body {
   font-size: var(--cv-font-s);
   color: var(--cv-text-primary);
   word-break: break-word;
+}
+
+.outlook-mock-value-multiline {
+  white-space: pre-line;
+}
+
+.outlook-mock-field-group + .outlook-mock-field-group {
+  margin-top: var(--cv-space-m);
+  padding-top: var(--cv-space-m);
+  border-top: 1px solid var(--cv-contrast-10);
 }
 
 .outlook-mock-hint {

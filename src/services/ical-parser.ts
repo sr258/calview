@@ -22,6 +22,13 @@ const RRULE_PATTERN = /^RRULE[;:](.*)/m;
 const RECURRENCE_ID_PATTERN = /^RECURRENCE-ID[;:](.*)/m;
 const EXDATE_PATTERN = /^EXDATE[;:](.*)/gm;
 const FREEBUSY_PATTERN = /^FREEBUSY[;:](.*)/gm;
+const LOCATION_PATTERN = /^LOCATION[;:](.*)/m;
+const DESCRIPTION_PATTERN = /^DESCRIPTION[;:](.*)/m;
+// ORGANIZER/ATTENDEE keep their parameters (e.g. CN=...) separate from the
+// value, since the display name (CN) is more useful to show than the raw
+// mailto: URI.
+const ORGANIZER_PATTERN = /^ORGANIZER([^:\r\n]*):(.*)/m;
+const ATTENDEE_PATTERN = /^ATTENDEE([^:\r\n]*):(.*)/gm;
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
@@ -79,6 +86,10 @@ export function parseICalendarData(
     classValue: string | null;
     rrule: string | null;
     recurrenceId: string | null;
+    location: string | null;
+    description: string | null;
+    organizer: string | null;
+    attendees: string[];
   }
 
   const masters: VEventEntry[] = [];
@@ -114,6 +125,10 @@ export function parseICalendarData(
       classValue: extractICalProperty(veventBlock, CLASS_PATTERN),
       rrule: extractICalProperty(veventBlock, RRULE_PATTERN),
       recurrenceId: extractICalProperty(veventBlock, RECURRENCE_ID_PATTERN),
+      location: unescapeICalText(extractICalProperty(veventBlock, LOCATION_PATTERN)),
+      description: unescapeICalText(extractICalProperty(veventBlock, DESCRIPTION_PATTERN)),
+      organizer: extractOrganizer(veventBlock),
+      attendees: extractAttendees(veventBlock),
     };
 
     if (entry.rrule !== null) {
@@ -187,7 +202,10 @@ export function parseICalendarData(
         if (date === null) continue;
 
         const status = master.classValue !== null ? master.classValue.trim() : "PUBLIC";
-        const ev = makeEvent(master.summary, date, startTime, endTime, status, accessible);
+        const ev = makeEvent(
+          master.summary, date, startTime, endTime, status, accessible,
+          master.location, master.description, master.organizer, master.attendees
+        );
         events.push(ev);
       }
     } else {
@@ -216,7 +234,10 @@ export function parseICalendarData(
  * Converts a parsed VEVENT entry to a CalDavEvent, filtering against EXDATE.
  */
 function entryToEvent(
-  entry: { summary: string | null; dtstart: string; dtend: string | null; duration: string | null; classValue: string | null },
+  entry: {
+    summary: string | null; dtstart: string; dtend: string | null; duration: string | null; classValue: string | null;
+    location: string | null; description: string | null; organizer: string | null; attendees: string[];
+  },
   accessible: boolean,
   exdates: Set<string>
 ): CalDavEvent | null {
@@ -243,7 +264,10 @@ function entryToEvent(
 
   if (date === null) return null;
 
-  return makeEvent(entry.summary, date, startTime, endTime, status, accessible);
+  return makeEvent(
+    entry.summary, date, startTime, endTime, status, accessible,
+    entry.location, entry.description, entry.organizer, entry.attendees
+  );
 }
 
 /**
@@ -255,12 +279,17 @@ function makeEvent(
   startTime: string | null,
   endTime: string | null,
   status: string,
-  accessible: boolean
+  accessible: boolean,
+  location: string | null = null,
+  description: string | null = null,
+  organizer: string | null = null,
+  attendees: string[] = []
 ): CalDavEvent {
   if (accessible) {
     return {
       summary: summary !== null ? summary.trim() : "(Kein Titel)",
       date, startTime, endTime, status, accessible: true,
+      location, description, organizer, attendees,
     };
   }
   return {
@@ -757,4 +786,59 @@ export function parseDurationEndTime(
  */
 export function formatICalDate(isoDate: string): string {
   return isoDate.replace(/-/g, "");
+}
+
+/**
+ * Extracts a display name from an ORGANIZER/ATTENDEE property's parameters
+ * and value, preferring the CN (common name) parameter over the raw
+ * "mailto:" value.
+ */
+function extractDisplayName(params: string, value: string): string {
+  const cnMatch = /CN=(?:"([^"]*)"|([^;]+))/.exec(params);
+  if (cnMatch) {
+    return (cnMatch[1] ?? cnMatch[2]).trim();
+  }
+  const mailtoMatch = /^mailto:(.+)$/i.exec(value.trim());
+  if (mailtoMatch) {
+    return mailtoMatch[1].trim();
+  }
+  return value.trim();
+}
+
+/**
+ * Extracts the organizer's display name from a VEVENT block, or null if
+ * no ORGANIZER property is present.
+ */
+function extractOrganizer(block: string): string | null {
+  const regex = new RegExp(ORGANIZER_PATTERN.source, "m");
+  const match = regex.exec(block);
+  if (!match) return null;
+  return extractDisplayName(match[1], match[2]);
+}
+
+/**
+ * Extracts the display names of all attendees from a VEVENT block.
+ * A VEVENT may contain multiple ATTENDEE lines, one per participant.
+ */
+function extractAttendees(block: string): string[] {
+  const regex = new RegExp(ATTENDEE_PATTERN.source, ATTENDEE_PATTERN.flags);
+  const attendees: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(block)) !== null) {
+    attendees.push(extractDisplayName(match[1], match[2]));
+  }
+  return attendees;
+}
+
+/**
+ * Unescapes iCalendar TEXT value escape sequences (RFC 5545 §3.3.11):
+ * "\n"/"\N" → newline, "\," → ",", "\;" → ";", "\\\\" → "\\".
+ */
+function unescapeICalText(value: string | null): string | null {
+  if (value === null) return null;
+  return value
+    .replace(/\\n/gi, "\n")
+    .replace(/\\,/g, ",")
+    .replace(/\\;/g, ";")
+    .replace(/\\\\/g, "\\");
 }

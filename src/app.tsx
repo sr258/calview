@@ -26,6 +26,7 @@ import { ViewSwitcher } from "./components/view-switcher.js";
 import { ScheduleGrid } from "./components/schedule-grid.js";
 import { CalendarView } from "./components/calendar-view.js";
 import { OutlookMockDialog } from "./components/outlook-mock-dialog.js";
+import { EventDetailsDialog } from "./components/event-details-dialog.js";
 import { Notifications, type NotificationVariant } from "./components/notifications.js";
 import { initializeApp, activeView, initializing } from "./state/app-state.js";
 import {
@@ -33,6 +34,7 @@ import {
   type OutlookAppointmentParams,
   type OutlookFormattedParams,
 } from "./services/outlook.js";
+import type { EventWithOwner } from "./model/types.js";
 
 interface ToastMessage {
   id: number;
@@ -45,6 +47,7 @@ let nextToastId = 0;
 export function App() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [mockDialogParams, setMockDialogParams] = useState<OutlookFormattedParams | null>(null);
+  const [detailsEvents, setDetailsEvents] = useState<EventWithOwner[] | null>(null);
   const [showHelp, setShowHelp] = useState(false);
   const [showAbout, setShowAbout] = useState(false);
 
@@ -103,6 +106,10 @@ export function App() {
     [showNotification],
   );
 
+  const handleEventClick = useCallback((entries: EventWithOwner[]) => {
+    setDetailsEvents(entries);
+  }, []);
+
   return (
     <div class="app-root">
       <Toolbar onOpenHelp={() => setShowHelp(true)} onOpenAbout={() => setShowAbout(true)} />
@@ -126,14 +133,19 @@ export function App() {
             <ViewSwitcher />
           </div>
           {activeView.value === "table"
-            ? <ScheduleGrid onSlotClick={handleSlotClick} />
-            : <CalendarView onSlotClick={handleSlotClick} />}
+            ? <ScheduleGrid onSlotClick={handleSlotClick} onEventClick={handleEventClick} />
+            : <CalendarView onSlotClick={handleSlotClick} onEventClick={handleEventClick} />}
         </div>
       )}
 
       <OutlookMockDialog
         params={mockDialogParams}
         onClose={() => setMockDialogParams(null)}
+      />
+
+      <EventDetailsDialog
+        entries={detailsEvents}
+        onClose={() => setDetailsEvents(null)}
       />
 
       <Notifications toasts={toasts} onDismiss={dismissToast} />
