@@ -308,6 +308,12 @@ function CalendarEventBlock({ pe, onEventClick }: CalendarEventBlockProps) {
   const tooltipParts = [label];
   if (timeStr) tooltipParts.push(timeStr);
   tooltipParts.push(user.displayName);
+  if (event.accessible && event.location) {
+    tooltipParts.push(`Ort: ${event.location}`);
+  }
+  if (event.accessible && event.attendees && event.attendees.length > 0) {
+    tooltipParts.push(`Teilnehmer: ${event.attendees.join(", ")}`);
+  }
   const tooltip = tooltipParts.join("\n");
 
   const cssClass = getCssClassForEvent(event);
@@ -340,19 +346,10 @@ function CalendarEventBlock({ pe, onEventClick }: CalendarEventBlockProps) {
       }}
     >
       <div class="cal-event-inner">
-        {isShort ? (
-          <div class="cal-event-label">
-            {timeStr && (
-              <span class="cal-event-time-inline">{timeStr}</span>
-            )}
-            {label}
-          </div>
-        ) : (
-          <>
-            <div class="cal-event-time">{timeStr}</div>
-            <div class="cal-event-label">{label}</div>
-          </>
+        {timeStr && (
+          <div class={`cal-event-time${isShort ? " cal-event-time-short" : ""}`}>{timeStr}</div>
         )}
+        <div class={`cal-event-label${isShort ? " cal-event-label-short" : ""}`}>{label}</div>
       </div>
     </div>
   );
