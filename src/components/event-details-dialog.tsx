@@ -6,6 +6,7 @@
  * pattern as LoginDialog / OutlookMockDialog for visual consistency.
  */
 
+import { useEffect } from "preact/hooks";
 import type { EventWithOwner } from "../model/types.js";
 import { formatTimeForDisplay } from "../model/schedule.js";
 
@@ -121,15 +122,25 @@ function EventDetailsEntry({ user, event }: EventWithOwner) {
 }
 
 export function EventDetailsDialog({ entries, onClose }: EventDetailsDialogProps) {
+  const isOpen = !!entries && entries.length > 0;
+
+  // Listen on the document rather than the dialog itself, since the dialog
+  // has no focusable element to receive the keydown when it opens (focus
+  // stays wherever it was, e.g. on the clicked table cell).
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!entries || entries.length === 0) {
     return null;
   }
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Escape") {
-      onClose();
-    }
-  };
 
   const handleOverlayClick = (e: MouseEvent) => {
     if ((e.target as HTMLElement).classList.contains("login-overlay")) {
@@ -138,7 +149,7 @@ export function EventDetailsDialog({ entries, onClose }: EventDetailsDialogProps
   };
 
   return (
-    <div class="login-overlay" onKeyDown={handleKeyDown} onClick={handleOverlayClick}>
+    <div class="login-overlay" onClick={handleOverlayClick}>
       <div class="login-dialog outlook-mock-dialog">
         <div class="login-dialog-header">
           <h2>Termindetails</h2>
