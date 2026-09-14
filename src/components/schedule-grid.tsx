@@ -393,6 +393,8 @@ function ScheduleRowComponent({
    */
   const handleSlotClick = (e: MouseEvent, cell: MergedCell) => {
     if (!onSlotClick) return;
+    // Clicking an existing appointment should not open the "new event" dialog.
+    if (cell.slot.busy) return;
 
     const weekStart = currentWeekStart.value;
     const date = addDays(weekStart, cell.dayIdx);

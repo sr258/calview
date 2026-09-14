@@ -297,6 +297,7 @@ function CalendarEventBlock({ pe }: { pe: PositionedEvent }) {
         "--cal-event-color": color,
       }}
       title={tooltip}
+      onClick={(e: MouseEvent) => e.stopPropagation()}
     >
       <div class="cal-event-inner">
         {!isShort && <div class="cal-event-time">{timeStr}</div>}
