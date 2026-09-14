@@ -66,20 +66,39 @@ function getNowIndicatorTop(): number {
   return ((hours - SCHEDULE_START_HOUR) * 60 + minutes) / 60 * HOUR_HEIGHT_PX;
 }
 
-/** Palette of user colors for overlapping events. */
-const USER_COLORS = [
-  "var(--cv-primary)",           // blue
-  "#e64a19",                     // deep orange
-  "#7b1fa2",                     // purple
-  "#00897b",                     // teal
-  "#c62828",                     // red
-  "#33691e",                     // green
-  "#4527a0",                     // deep purple
-  "#00838f",                     // cyan
-];
+/**
+ * Derives a stable, well-distinguishable color from a calendar/user's display
+ * name. Hashing the name (instead of cycling through a fixed palette by list
+ * position) means a given person always gets the same color across app
+ * restarts and regardless of selection order, and there's no hard limit on
+ * the number of distinct hues before colors repeat.
+ */
+function hashString(value: string): number {
+  let hash = 0;
+  for (let i = 0; i < value.length; i++) {
+    hash = (hash * 31 + value.charCodeAt(i)) | 0;
+  }
+  return hash >>> 0;
+}
 
-function getUserColor(userIndex: number): string {
-  return USER_COLORS[userIndex % USER_COLORS.length];
+function userColorHsl(name: string): { hue: number; saturation: number; lightness: number } {
+  const hash = hashString(name);
+  // Golden-angle step spreads hues evenly regardless of hash clustering.
+  const hue = (hash * 137.508) % 360;
+  const saturation = 65 + (hash % 15); // 65–79%
+  const lightness = 38 + ((hash >> 4) % 10); // 38–47%, keeps contrast on light bg
+  return { hue, saturation, lightness };
+}
+
+function getUserColor(name: string): string {
+  const { hue, saturation, lightness } = userColorHsl(name);
+  return `hsl(${hue.toFixed(1)}, ${saturation}%, ${lightness}%)`;
+}
+
+/** Light background tint of the user color, for filling event blocks. */
+function getUserColorTint(name: string): string {
+  const { hue, saturation } = userColorHsl(name);
+  return `hsla(${hue.toFixed(1)}, ${saturation}%, 50%, 0.14)`;
 }
 
 export interface CalendarViewProps {
@@ -268,9 +287,9 @@ interface CalendarEventBlockProps {
 }
 
 function CalendarEventBlock({ pe, onEventClick }: CalendarEventBlockProps) {
-  const { event, user, userIndex, top, height, left, width } = pe;
+  const { event, user, top, height, left, width } = pe;
 
-  const color = getUserColor(userIndex);
+  const color = getUserColor(user.displayName);
   const isShort = height < 30;
 
   // Build label
@@ -293,6 +312,15 @@ function CalendarEventBlock({ pe, onEventClick }: CalendarEventBlockProps) {
 
   const cssClass = getCssClassForEvent(event);
 
+  // For events on a fully-accessible calendar, the shared "slot-busy" class
+  // would otherwise paint every such event with the same fixed blue
+  // background/box-shadow, drowning out the per-person border color. Only
+  // status-only events (free/busy without details) keep that shared,
+  // status-based coloring, since there the color conveys FBTYPE, not identity.
+  const accessibleStyle = event.accessible
+    ? { backgroundColor: getUserColorTint(user.displayName), boxShadow: `inset 3px 0 0 ${color}`, color: "var(--cv-text-primary)" }
+    : {};
+
   return (
     <div
       class={`cal-event ${cssClass}`}
@@ -303,6 +331,7 @@ function CalendarEventBlock({ pe, onEventClick }: CalendarEventBlockProps) {
         width: `${width * 100}%`,
         borderLeftColor: color,
         "--cal-event-color": color,
+        ...accessibleStyle,
       }}
       title={tooltip}
       onClick={(e: MouseEvent) => {
@@ -338,14 +367,14 @@ function CalendarLegend() {
 
   return (
     <div class="cal-legend">
-      {users.map((user, idx) => {
+      {users.map((user) => {
         const isFailed = failed.has(user.href);
         const isFav = favs.some((f) => f.href === user.href);
         return (
           <div key={user.href} class="cal-legend-item">
             <span
               class="cal-legend-swatch"
-              style={{ backgroundColor: getUserColor(idx) }}
+              style={{ backgroundColor: getUserColor(user.displayName) }}
             />
             {isFailed && (
               <span class="user-warning-icon" title="Laden fehlgeschlagen">⚠</span>
