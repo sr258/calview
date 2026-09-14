@@ -182,18 +182,33 @@ export function parseICalendarData(
         const date = parseICalDate(occDtstart);
         const startTime = parseICalTime(occDtstart);
         let endTime: string | null = null;
+        let endDate = date;
 
-        // Compute end time from master's duration or DTEND offset
-        if (master.dtend !== null && startTime !== null) {
-          const masterStartTime = parseICalTime(master.dtstart);
-          const masterEndTime = parseICalTime(master.dtend);
-          if (masterStartTime !== null && masterEndTime !== null) {
-            // Compute duration from master and apply to occurrence
-            const startMins = parseTimeToMinutes(masterStartTime);
-            const endMins = parseTimeToMinutes(masterEndTime);
-            const durationMins = endMins - startMins;
-            const occStartMins = parseTimeToMinutes(startTime);
-            endTime = formatMinutesToTime(occStartMins + durationMins);
+        // Compute end time/date from master's duration or DTEND offset
+        if (master.dtend !== null) {
+          const masterIsDateOnly = !master.dtstart.includes("T");
+          if (masterIsDateOnly) {
+            // All-day (possibly multi-day) event: carry the master's day span
+            // over to this occurrence.
+            const masterStartDate = parseICalDate(master.dtstart);
+            const masterEndDateRaw = parseICalDate(master.dtend);
+            if (date !== null && masterStartDate !== null && masterEndDateRaw !== null) {
+              // DTEND for all-day events is exclusive per RFC 5545.
+              const masterEndDateInclusive = addDaysToISODate(masterEndDateRaw, -1);
+              const spanDays = daysBetweenISODates(masterStartDate, masterEndDateInclusive);
+              endDate = addDaysToISODate(date, spanDays);
+            }
+          } else if (startTime !== null) {
+            const masterStartTime = parseICalTime(master.dtstart);
+            const masterEndTime = parseICalTime(master.dtend);
+            if (masterStartTime !== null && masterEndTime !== null) {
+              // Compute duration from master and apply to occurrence
+              const startMins = parseTimeToMinutes(masterStartTime);
+              const endMins = parseTimeToMinutes(masterEndTime);
+              const durationMins = endMins - startMins;
+              const occStartMins = parseTimeToMinutes(startTime);
+              endTime = formatMinutesToTime(occStartMins + durationMins);
+            }
           }
         } else if (master.duration !== null && startTime !== null) {
           endTime = parseDurationEndTime(startTime, master.duration.trim());
@@ -203,7 +218,7 @@ export function parseICalendarData(
 
         const status = master.classValue !== null ? master.classValue.trim() : "PUBLIC";
         const ev = makeEvent(
-          master.summary, date, startTime, endTime, status, accessible,
+          master.summary, date, endDate ?? date, startTime, endTime, status, accessible,
           master.location, master.description, master.organizer, master.attendees
         );
         events.push(ev);
@@ -264,10 +279,49 @@ function entryToEvent(
 
   if (date === null) return null;
 
+  const endDate = computeEndDate(entry.dtstart, entry.dtend, date);
+
   return makeEvent(
-    entry.summary, date, startTime, endTime, status, accessible,
+    entry.summary, date, endDate, startTime, endTime, status, accessible,
     entry.location, entry.description, entry.organizer, entry.attendees
   );
+}
+
+/**
+ * Computes the inclusive last day of an event's span as an ISO date string.
+ * All-day (date-only) DTEND values are exclusive per RFC 5545, so they are
+ * shifted back by one day to obtain the last day the event actually occupies.
+ */
+function computeEndDate(
+  dtstart: string,
+  dtend: string | null,
+  startDate: string
+): string {
+  if (dtend === null) return startDate;
+
+  const endDateRaw = parseICalDate(dtend);
+  if (endDateRaw === null) return startDate;
+
+  const isDateOnly = !dtstart.includes("T");
+  return isDateOnly ? addDaysToISODate(endDateRaw, -1) : endDateRaw;
+}
+
+/**
+ * Adds (or subtracts) days from an ISO date string "YYYY-MM-DD".
+ */
+function addDaysToISODate(isoDate: string, days: number): string {
+  const d = new Date(isoDate + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().substring(0, 10);
+}
+
+/**
+ * Returns the number of days between two ISO date strings "YYYY-MM-DD" (b - a).
+ */
+function daysBetweenISODates(a: string, b: string): number {
+  const da = new Date(a + "T00:00:00Z").getTime();
+  const db = new Date(b + "T00:00:00Z").getTime();
+  return Math.round((db - da) / 86400000);
 }
 
 /**
@@ -276,6 +330,7 @@ function entryToEvent(
 function makeEvent(
   summary: string | null,
   date: string,
+  endDate: string,
   startTime: string | null,
   endTime: string | null,
   status: string,
@@ -288,13 +343,13 @@ function makeEvent(
   if (accessible) {
     return {
       summary: summary !== null ? summary.trim() : "(Kein Titel)",
-      date, startTime, endTime, status, accessible: true,
+      date, endDate, startTime, endTime, status, accessible: true,
       location, description, organizer, attendees,
     };
   }
   return {
     summary: null,
-    date, startTime, endTime, status, accessible: false,
+    date, endDate, startTime, endTime, status, accessible: false,
   };
 }
 
@@ -640,16 +695,19 @@ export function parseFreeBusyResponse(icalBody: string): CalDavEvent[] {
       }
 
       let endTime: string | null;
+      let endDate = date;
       if (endOrDuration.startsWith("P")) {
         // ISO 8601 duration like PT1H, PT30M, PT1H30M
         endTime = parseDurationEndTime(startTime, endOrDuration);
       } else {
         endTime = parseICalTime(endOrDuration);
+        endDate = parseICalDate(endOrDuration) ?? date;
       }
 
       events.push({
         summary: null,
         date,
+        endDate,
         startTime,
         endTime,
         status: fbType,

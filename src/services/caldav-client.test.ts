@@ -599,6 +599,28 @@ END:VCALENDAR`;
     expect(events[0].date).toBe("2025-02-10");
     expect(events[0].startTime).toBeNull();
     expect(events[0].endTime).toBeNull();
+    expect(events[0].endDate).toBe("2025-02-10");
+  });
+
+  it("parses multi-day all-day event spanning its full date range", () => {
+    const ical = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART;VALUE=DATE:20250210
+DTEND;VALUE=DATE:20250213
+SUMMARY:Vacation
+UID:multiday@example.com
+END:VEVENT
+END:VCALENDAR`;
+
+    const events = parseICalendarData(ical, true);
+
+    expect(events).toHaveLength(1);
+    expect(events[0].date).toBe("2025-02-10");
+    // DTEND is exclusive per RFC 5545, so the inclusive last day is 02-12.
+    expect(events[0].endDate).toBe("2025-02-12");
+    expect(events[0].startTime).toBeNull();
+    expect(events[0].endTime).toBeNull();
   });
 
   it("filters out deleted occurrences via EXDATE", () => {

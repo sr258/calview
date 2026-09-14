@@ -27,7 +27,9 @@ export interface CalDavUser {
  * Ported from: CalDavEvent.java
  *
  * @property summary - the name/summary of the event, or null if the calendar is restricted
- * @property date - the date of the event as ISO string "YYYY-MM-DD"
+ * @property date - the (first) date of the event as ISO string "YYYY-MM-DD"
+ * @property endDate - the last date of the event as ISO string "YYYY-MM-DD" (inclusive);
+ *                     equal to `date` for single-day events
  * @property startTime - the start time as "HH:mm", or null for all-day events
  * @property endTime - the end time as "HH:mm", or null for all-day events
  * @property status - the visibility/class of the event (e.g. "PUBLIC", "PRIVATE", "CONFIDENTIAL",
@@ -43,6 +45,7 @@ export interface CalDavUser {
 export interface CalDavEvent {
   summary: string | null;
   date: string;
+  endDate: string;
   startTime: string | null;
   endTime: string | null;
   status: string;

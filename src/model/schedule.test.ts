@@ -57,6 +57,7 @@ function makeEvent(overrides: Partial<CalDavEvent> = {}): CalDavEvent {
   return {
     summary: "Test Event",
     date: "2025-02-10",
+    endDate: overrides.date ?? "2025-02-10",
     startTime: "10:00",
     endTime: "11:00",
     status: "PUBLIC",
@@ -148,6 +149,18 @@ describe("filterEventsForDay", () => {
     const filtered = filterEventsForDay(events, "2025-02-11");
 
     expect(filtered).toHaveLength(0);
+  });
+
+  it("includes a multi-day event on every day it spans", () => {
+    const events = [
+      makeEvent({ date: "2025-02-10", endDate: "2025-02-12" }),
+    ];
+
+    expect(filterEventsForDay(events, "2025-02-09")).toHaveLength(0);
+    expect(filterEventsForDay(events, "2025-02-10")).toHaveLength(1);
+    expect(filterEventsForDay(events, "2025-02-11")).toHaveLength(1);
+    expect(filterEventsForDay(events, "2025-02-12")).toHaveLength(1);
+    expect(filterEventsForDay(events, "2025-02-13")).toHaveLength(0);
   });
 });
 

@@ -93,7 +93,7 @@ export function filterEventsForDay(
   events: CalDavEvent[],
   dayDate: string
 ): CalDavEvent[] {
-  return events.filter((e) => e.date === dayDate);
+  return events.filter((e) => e.date <= dayDate && e.endDate >= dayDate);
 }
 
 /**
