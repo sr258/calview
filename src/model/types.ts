@@ -53,6 +53,8 @@ export interface CalDavEvent {
  * @property tooltip - tooltip text (may be null)
  * @property busy - whether this slot is considered busy (used for "All Free" calculation)
  * @property eventKey - composite key identifying the event in this slot (used for merging adjacent slots)
+ * @property events - the actual calendar events overlapping this slot (empty for free/summary slots),
+ *                    kept so a click on the slot can show event details instead of creating a new one
  */
 export interface SlotInfo {
   cssClass: string;
@@ -60,6 +62,7 @@ export interface SlotInfo {
   tooltip: string | null;
   busy: boolean;
   eventKey: string | null;
+  events?: CalDavEvent[];
 }
 
 /**

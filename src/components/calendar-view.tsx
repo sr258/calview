@@ -26,7 +26,7 @@ import {
   formatTimeForDisplay,
   getCssClassForEvent,
 } from "../model/schedule.js";
-import type { PositionedEvent } from "../model/types.js";
+import type { CalDavEvent, PositionedEvent } from "../model/types.js";
 import type { OutlookAppointmentParams } from "../services/outlook.js";
 
 /** Schedule start hour (matches SCHEDULE_START "07:00"). */
@@ -84,9 +84,10 @@ function getUserColor(userIndex: number): string {
 
 export interface CalendarViewProps {
   onSlotClick?: (params: OutlookAppointmentParams) => void;
+  onEventClick?: (events: CalDavEvent[]) => void;
 }
 
-export function CalendarView({ onSlotClick }: CalendarViewProps) {
+export function CalendarView({ onSlotClick, onEventClick }: CalendarViewProps) {
   const users = selectedUsers.value;
   const events = userEvents.value;
   const weekStart = currentWeekStart.value;
@@ -147,6 +148,7 @@ export function CalendarView({ onSlotClick }: CalendarViewProps) {
               isToday={dayIdx === todayDayIdx}
               nowTop={dayIdx === todayDayIdx ? nowTop : -1}
               onSlotClick={onSlotClick}
+              onEventClick={onEventClick}
             />
           ))}
         </div>
@@ -166,9 +168,10 @@ interface DayColumnProps {
   isToday: boolean;
   nowTop: number;
   onSlotClick?: (params: OutlookAppointmentParams) => void;
+  onEventClick?: (events: CalDavEvent[]) => void;
 }
 
-function CalendarDayColumn({ dayIdx, weekStart, users, events, failed, isToday, nowTop, onSlotClick }: DayColumnProps) {
+function CalendarDayColumn({ dayIdx, weekStart, users, events, failed, isToday, nowTop, onSlotClick, onEventClick }: DayColumnProps) {
   const dayDate = addDays(weekStart, dayIdx);
   const header = formatDayHeader(weekStart, dayIdx);
 
@@ -243,7 +246,7 @@ function CalendarDayColumn({ dayIdx, weekStart, users, events, failed, isToday, 
 
         {/* Event blocks */}
         {positioned.map((pe, i) => (
-          <CalendarEventBlock key={i} pe={pe} />
+          <CalendarEventBlock key={i} pe={pe} onEventClick={onEventClick} />
         ))}
 
         {/* Failed user overlay */}
@@ -259,7 +262,12 @@ function CalendarDayColumn({ dayIdx, weekStart, users, events, failed, isToday, 
 
 // ─── Event Block ─────────────────────────────────────────────────────────────
 
-function CalendarEventBlock({ pe }: { pe: PositionedEvent }) {
+interface CalendarEventBlockProps {
+  pe: PositionedEvent;
+  onEventClick?: (events: CalDavEvent[]) => void;
+}
+
+function CalendarEventBlock({ pe, onEventClick }: CalendarEventBlockProps) {
   const { event, user, userIndex, top, height, left, width } = pe;
 
   const color = getUserColor(userIndex);
@@ -297,7 +305,10 @@ function CalendarEventBlock({ pe }: { pe: PositionedEvent }) {
         "--cal-event-color": color,
       }}
       title={tooltip}
-      onClick={(e: MouseEvent) => e.stopPropagation()}
+      onClick={(e: MouseEvent) => {
+        e.stopPropagation();
+        onEventClick?.([event]);
+      }}
     >
       <div class="cal-event-inner">
         {!isShort && <div class="cal-event-time">{timeStr}</div>}

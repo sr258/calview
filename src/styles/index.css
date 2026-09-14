@@ -756,6 +756,12 @@ body {
   word-break: break-word;
 }
 
+.outlook-mock-field-group + .outlook-mock-field-group {
+  margin-top: var(--cv-space-m);
+  padding-top: var(--cv-space-m);
+  border-top: 1px solid var(--cv-contrast-10);
+}
+
 .outlook-mock-hint {
   margin-top: var(--cv-space-s);
   padding: var(--cv-space-s) var(--cv-space-m);
