@@ -29,7 +29,7 @@
  */
 
 import { useState, useEffect, useRef } from "preact/hooks";
-import type { ScheduleRow, CalDavUser, MergedCell } from "../model/types.js";
+import type { ScheduleRow, CalDavUser, EventWithOwner, MergedCell } from "../model/types.js";
 import type { OutlookAppointmentParams } from "../services/outlook.js";
 import {
   scheduleRows,
@@ -87,9 +87,10 @@ function getCurrentTime(): string {
 
 export interface ScheduleGridProps {
   onSlotClick?: (params: OutlookAppointmentParams) => void;
+  onEventClick?: (entries: EventWithOwner[]) => void;
 }
 
-export function ScheduleGrid({ onSlotClick }: ScheduleGridProps) {
+export function ScheduleGrid({ onSlotClick, onEventClick }: ScheduleGridProps) {
   const rows = scheduleRows.value;
   const users = selectedUsers.value;
   const [currentTime, setCurrentTime] = useState(getCurrentTime());
@@ -272,6 +273,7 @@ export function ScheduleGrid({ onSlotClick }: ScheduleGridProps) {
           favorites={favs}
           todayDayIdx={todayDayIdx}
           onSlotClick={onSlotClick}
+          onEventClick={onEventClick}
         />
       </table>
       {nowIndicatorLeft >= 0 && (
@@ -344,9 +346,10 @@ interface ScheduleBodyProps {
   favorites: CalDavUser[];
   todayDayIdx: number;
   onSlotClick?: (params: OutlookAppointmentParams) => void;
+  onEventClick?: (entries: EventWithOwner[]) => void;
 }
 
-function ScheduleBody({ rows, timeSlots, failedUsers, favorites, todayDayIdx, onSlotClick }: ScheduleBodyProps) {
+function ScheduleBody({ rows, timeSlots, failedUsers, favorites, todayDayIdx, onSlotClick, onEventClick }: ScheduleBodyProps) {
   return (
     <tbody>
       {rows.map((row, rowIdx) => (
@@ -358,6 +361,7 @@ function ScheduleBody({ rows, timeSlots, failedUsers, favorites, todayDayIdx, on
           isFavorite={row.user !== null && favorites.some((u) => u.href === row.user!.href)}
           isLastRow={rowIdx === rows.length - 1}
           onSlotClick={onSlotClick}
+          onEventClick={onEventClick}
         />
       ))}
     </tbody>
@@ -373,6 +377,7 @@ interface ScheduleRowProps {
   isFavorite: boolean;
   isLastRow: boolean;
   onSlotClick?: (params: OutlookAppointmentParams) => void;
+  onEventClick?: (entries: EventWithOwner[]) => void;
 }
 
 function ScheduleRowComponent({
@@ -382,6 +387,7 @@ function ScheduleRowComponent({
   isFavorite,
   isLastRow,
   onSlotClick,
+  onEventClick,
 }: ScheduleRowProps) {
   const isSummaryRow = row.user === null;
   const mergedCells = computeMergedCells(row.slots, timeSlots);
@@ -392,6 +398,15 @@ function ScheduleRowComponent({
    * cells, computes the hour based on where in the cell the click landed.
    */
   const handleSlotClick = (e: MouseEvent, cell: MergedCell) => {
+    // Clicking an existing appointment shows its details instead of
+    // opening the "new event" dialog.
+    if (cell.slot.busy) {
+      if (onEventClick && row.user && cell.slot.events && cell.slot.events.length > 0) {
+        onEventClick(cell.slot.events.map((event) => ({ user: row.user!, event })));
+      }
+      return;
+    }
+
     if (!onSlotClick) return;
 
     const weekStart = currentWeekStart.value;

@@ -484,6 +484,53 @@ END:VCALENDAR`;
     expect(events[0].endTime).toBe("15:30");
   });
 
+  it("parses ORGANIZER, ATTENDEE, LOCATION and DESCRIPTION for accessible events", () => {
+    const ical = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART:20250210T100000Z
+DTEND:20250210T110000Z
+SUMMARY:Project Kickoff
+LOCATION:Room 42
+DESCRIPTION:Agenda:\\nIntro\\, goals and next steps
+ORGANIZER;CN=Jane Smith:mailto:jane@example.com
+ATTENDEE;CN=John Doe;ROLE=REQ-PARTICIPANT:mailto:john@example.com
+ATTENDEE;CN="Doe, Ann";ROLE=REQ-PARTICIPANT:mailto:ann@example.com
+UID:details-1@example.com
+END:VEVENT
+END:VCALENDAR`;
+
+    const events = parseICalendarData(ical, true);
+
+    expect(events).toHaveLength(1);
+    expect(events[0].location).toBe("Room 42");
+    expect(events[0].description).toBe("Agenda:\nIntro, goals and next steps");
+    expect(events[0].organizer).toBe("Jane Smith");
+    expect(events[0].attendees).toEqual(["John Doe", "Doe, Ann"]);
+  });
+
+  it("does not expose ORGANIZER/ATTENDEE/LOCATION/DESCRIPTION for free-busy-only events", () => {
+    const ical = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART:20250210T100000Z
+DTEND:20250210T110000Z
+LOCATION:Room 42
+ORGANIZER;CN=Jane Smith:mailto:jane@example.com
+ATTENDEE;CN=John Doe:mailto:john@example.com
+UID:details-2@example.com
+END:VEVENT
+END:VCALENDAR`;
+
+    const events = parseICalendarData(ical, false);
+
+    expect(events).toHaveLength(1);
+    expect(events[0].summary).toBeNull();
+    expect(events[0].location).toBeUndefined();
+    expect(events[0].organizer).toBeUndefined();
+    expect(events[0].attendees).toBeUndefined();
+  });
+
   it("prefers DTEND over DURATION when both present", () => {
     const ical = `BEGIN:VCALENDAR
 VERSION:2.0

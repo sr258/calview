@@ -253,13 +253,13 @@
   text-overflow: ellipsis;
 }
 
-.cal-event-user {
+.cal-event-time-inline {
   font-size: var(--cv-font-xxs);
+  font-weight: 400;
   color: var(--cv-text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  margin-right: 4px;
 }
+
 
 /* Reuse the schedule slot status classes for background colors.
    They're already defined in schedule.css so no need to repeat.

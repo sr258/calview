@@ -297,6 +297,7 @@ export function computeUserSlots(
           tooltip: "Laden fehlgeschlagen",
           busy: true,
           eventKey: null,
+          events: [],
         };
         continue;
       }
@@ -306,7 +307,7 @@ export function computeUserSlots(
 
       if (overlapping.length === 0) {
         // Free slot
-        slots[key] = { cssClass: "", label: null, tooltip: null, busy: false, eventKey: null };
+        slots[key] = { cssClass: "", label: null, tooltip: null, busy: false, eventKey: null, events: [] };
       } else {
         // Busy slot - determine the most significant event for display
         const primaryEvent = selectPrimaryEvent(overlapping);
@@ -315,7 +316,7 @@ export function computeUserSlots(
         const tooltip = buildTooltip(overlapping, time, slotEnd);
         const eventKey = getEventKey(primaryEvent);
 
-        slots[key] = { cssClass, label, tooltip, busy: true, eventKey };
+        slots[key] = { cssClass, label, tooltip, busy: true, eventKey, events: overlapping };
       }
     }
   }
@@ -348,6 +349,7 @@ export function computeAllFreeSlots(
         tooltip: "Alle Benutzer sind frei",
         busy: false,
         eventKey: null,
+        events: [],
       };
     } else {
       slots[key] = {
@@ -356,6 +358,7 @@ export function computeAllFreeSlots(
         tooltip: null,
         busy: true,
         eventKey: null,
+        events: [],
       };
     }
   }
@@ -429,7 +432,7 @@ export function computeMergedCells(
         merged.push({
           key,
           colSpan: 1,
-          slot: slot ?? { cssClass: "", label: null, tooltip: null, busy: false, eventKey: null },
+          slot: slot ?? { cssClass: "", label: null, tooltip: null, busy: false, eventKey: null, events: [] },
           isFirstSlotOfDay,
           dayIdx,
           endsAtFullHour,
