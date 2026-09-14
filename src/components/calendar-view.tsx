@@ -81,13 +81,24 @@ function hashString(value: string): number {
   return hash >>> 0;
 }
 
-function getUserColor(name: string): string {
+function userColorHsl(name: string): { hue: number; saturation: number; lightness: number } {
   const hash = hashString(name);
   // Golden-angle step spreads hues evenly regardless of hash clustering.
   const hue = (hash * 137.508) % 360;
   const saturation = 65 + (hash % 15); // 65–79%
   const lightness = 38 + ((hash >> 4) % 10); // 38–47%, keeps contrast on light bg
+  return { hue, saturation, lightness };
+}
+
+function getUserColor(name: string): string {
+  const { hue, saturation, lightness } = userColorHsl(name);
   return `hsl(${hue.toFixed(1)}, ${saturation}%, ${lightness}%)`;
+}
+
+/** Light background tint of the user color, for filling event blocks. */
+function getUserColorTint(name: string): string {
+  const { hue, saturation } = userColorHsl(name);
+  return `hsla(${hue.toFixed(1)}, ${saturation}%, 50%, 0.14)`;
 }
 
 export interface CalendarViewProps {
@@ -293,6 +304,15 @@ function CalendarEventBlock({ pe }: { pe: PositionedEvent }) {
 
   const cssClass = getCssClassForEvent(event);
 
+  // For events on a fully-accessible calendar, the shared "slot-busy" class
+  // would otherwise paint every such event with the same fixed blue
+  // background/box-shadow, drowning out the per-person border color. Only
+  // status-only events (free/busy without details) keep that shared,
+  // status-based coloring, since there the color conveys FBTYPE, not identity.
+  const accessibleStyle = event.accessible
+    ? { backgroundColor: getUserColorTint(user.displayName), boxShadow: `inset 3px 0 0 ${color}`, color: "var(--cv-text-primary)" }
+    : {};
+
   return (
     <div
       class={`cal-event ${cssClass}`}
@@ -303,6 +323,7 @@ function CalendarEventBlock({ pe }: { pe: PositionedEvent }) {
         width: `${width * 100}%`,
         borderLeftColor: color,
         "--cal-event-color": color,
+        ...accessibleStyle,
       }}
       title={tooltip}
     >
