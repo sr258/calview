@@ -57,7 +57,8 @@ calview/
 ├── package.json                  # npm config, scripts, dependencies
 ├── tsconfig.json                 # TypeScript strict config (JSX for Preact)
 ├── vite.config.ts                # Preact preset, dev proxy, test config
-├── .github/workflows/ci.yml      # CI: test (Ubuntu) + Windows build (NSIS installer + portable)
+├── .github/workflows/ci.yml      # CI: test (Ubuntu) + Windows/Linux build on push/PR to main
+├── .github/workflows/release.yml # Release: builds + drafts a GitHub release on `v*.*.*` tag push
 ├── src/
 │   ├── main.tsx                  # Entry point: renders <App /> into #app
 │   ├── app.tsx                   # Root component: assembles all UI pieces
@@ -138,6 +139,21 @@ The app uses `--cv-*` custom properties (defined in `styles/index.css`) replacin
 | `--cv-success-text` | Success text color (#2e7d32) |
 | `--cv-contrast-*` | Contrast/border colors |
 | `--cv-text-secondary` | Secondary text color |
+
+## Release Process
+
+Releases are triggered by pushing a git tag matching `v*.*.*` (e.g. `v1.1.0`, `v1.1.0-preview1`), handled by `.github/workflows/release.yml`.
+
+1. Bump the version number in **all three** of these files so they stay in sync (only `package.json` is actually verified by the workflow):
+   - `package.json` (`version` field)
+   - `src-tauri/tauri.conf.json` (`version` field)
+   - `src-tauri/Cargo.toml` (`version` field)
+2. Commit the version bump to `main`.
+3. Tag the commit and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag must exactly equal `v` + the `package.json` version, or the workflow fails fast in its `version` job.
+4. GitHub Actions builds Windows (NSIS installer + portable exe) and Linux (deb + AppImage), then creates a **draft** GitHub release named `CalView vX.Y.Z` with auto-generated release notes and the built artifacts attached.
+5. Review the draft release, mark it as a pre-release if applicable (the workflow does not set this automatically), and publish it manually from the GitHub UI.
+
+Note: pre-release version suffixes (e.g. `-preview1`) are valid semver for `Cargo.toml`, but Windows installer version fields traditionally expect plain numeric `major.minor.patch` — verify the Windows build succeeds before relying on a suffixed version.
 
 ## Language Conventions
 
