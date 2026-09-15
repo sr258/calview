@@ -74,27 +74,34 @@ function toConnectionInfo(stored: StoredCredentials): ConnectionInfo | null {
 }
 
 /**
+ * Builds the persisted representation of a connection: the Basic Auth
+ * secret (if any) is folded into a single base64 authHeader field, same as
+ * before Kerberos support was added, rather than storing the raw password.
+ */
+function buildStoredCredentials(conn: ConnectionInfo): StoredCredentials {
+  const acceptInvalidCerts = conn.acceptInvalidCerts ?? false;
+  if (conn.auth.kind === "kerberos") {
+    return { url: conn.url, authMode: "kerberos", authHeader: null, acceptInvalidCerts };
+  }
+  return {
+    url: conn.url,
+    authMode: "basic",
+    authHeader: buildBasicAuthHeader(conn.auth.username, conn.auth.password),
+    acceptInvalidCerts,
+  };
+}
+
+/**
  * Save credentials to persistent storage.
  */
 export async function saveCredentials(conn: ConnectionInfo): Promise<void> {
-  const acceptCerts = conn.acceptInvalidCerts ?? false;
-  const stored: StoredCredentials =
-    conn.auth.kind === "basic"
-      ? {
-          url: conn.url,
-          authMode: "basic",
-          authHeader: buildBasicAuthHeader(conn.auth.username, conn.auth.password),
-          acceptInvalidCerts: acceptCerts,
-        }
-      : { url: conn.url, authMode: "kerberos", authHeader: null, acceptInvalidCerts: acceptCerts };
-
   console.log("[credential-store] saveCredentials: url=%s, authMode=%s, acceptInvalidCerts=%s, backend=%s",
-    conn.url, conn.auth.kind, acceptCerts, isTauri() ? "tauri" : "localStorage");
+    conn.url, conn.auth.kind, conn.acceptInvalidCerts ?? false, isTauri() ? "tauri" : "localStorage");
 
   if (isTauri()) {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("save_credentials", { ...stored });
+      await invoke("save_credentials", { ...buildStoredCredentials(conn) });
       console.log("[credential-store] saveCredentials: Tauri invoke succeeded");
     } catch (e) {
       console.error("[credential-store] saveCredentials: Tauri invoke failed:", e);
@@ -102,6 +109,7 @@ export async function saveCredentials(conn: ConnectionInfo): Promise<void> {
     }
   } else {
     try {
+      const stored = buildStoredCredentials(conn);
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stored));
       console.log("[credential-store] saveCredentials: localStorage write succeeded");
     } catch (e) {
