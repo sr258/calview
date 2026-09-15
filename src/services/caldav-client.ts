@@ -12,9 +12,9 @@
  * rather than being a separate class, since it was thin validation + delegation.
  */
 
-import type { CalDavUser, CalDavEvent } from "../model/types.js";
+import type { CalDavUser, CalDavEvent, AuthCredential } from "../model/types.js";
 import { CalDavError } from "../model/types.js";
-import { httpRequest, buildBasicAuthHeader } from "./http.js";
+import { authenticatedRequest } from "./http.js";
 import {
   parseICalendarData,
   parseFreeBusyResponse,
@@ -386,20 +386,21 @@ function getTextContent(
  */
 async function sendReport(
   normalizedUrl: string,
-  username: string,
-  password: string,
+  credential: AuthCredential,
   reportXml: string
 ): Promise<string> {
-  const response = await httpRequest({
-    url: normalizedUrl,
-    method: "REPORT",
-    headers: {
-      "Content-Type": "application/xml; charset=utf-8",
-      Depth: "0",
-      Authorization: buildBasicAuthHeader(username, password),
+  const response = await authenticatedRequest(
+    {
+      url: normalizedUrl,
+      method: "REPORT",
+      headers: {
+        "Content-Type": "application/xml; charset=utf-8",
+        Depth: "0",
+      },
+      body: reportXml,
     },
-    body: reportXml,
-  });
+    credential
+  );
 
   switch (response.status) {
     case 207:
@@ -429,20 +430,21 @@ async function sendReport(
  */
 async function sendCalendarReport(
   normalizedUrl: string,
-  username: string,
-  password: string,
+  credential: AuthCredential,
   reportXml: string
 ): Promise<string> {
-  const response = await httpRequest({
-    url: normalizedUrl,
-    method: "REPORT",
-    headers: {
-      "Content-Type": "application/xml; charset=utf-8",
-      Depth: "1",
-      Authorization: buildBasicAuthHeader(username, password),
+  const response = await authenticatedRequest(
+    {
+      url: normalizedUrl,
+      method: "REPORT",
+      headers: {
+        "Content-Type": "application/xml; charset=utf-8",
+        Depth: "1",
+      },
+      body: reportXml,
     },
-    body: reportXml,
-  });
+    credential
+  );
 
   switch (response.status) {
     case 207:
@@ -472,20 +474,21 @@ async function sendCalendarReport(
  */
 async function sendFreeBusyReport(
   normalizedUrl: string,
-  username: string,
-  password: string,
+  credential: AuthCredential,
   reportXml: string
 ): Promise<string> {
-  const response = await httpRequest({
-    url: normalizedUrl,
-    method: "REPORT",
-    headers: {
-      "Content-Type": "application/xml; charset=utf-8",
-      Depth: "1",
-      Authorization: buildBasicAuthHeader(username, password),
+  const response = await authenticatedRequest(
+    {
+      url: normalizedUrl,
+      method: "REPORT",
+      headers: {
+        "Content-Type": "application/xml; charset=utf-8",
+        Depth: "1",
+      },
+      body: reportXml,
     },
-    body: reportXml,
-  });
+    credential
+  );
 
   switch (response.status) {
     case 200:
@@ -516,15 +519,17 @@ async function sendFreeBusyReport(
  *
  * Ported from: CalDavService.java validateInputs() lines 118-128
  */
-function validateInputs(url: string, username: string, password: string): void {
+function validateInputs(url: string, credential: AuthCredential): void {
   if (!url || url.trim() === "") {
     throw new CalDavError("CalDAV-URL darf nicht leer sein.");
   }
-  if (!username || username.trim() === "") {
-    throw new CalDavError("Benutzername darf nicht leer sein.");
-  }
-  if (!password || password.trim() === "") {
-    throw new CalDavError("Passwort darf nicht leer sein.");
+  if (credential.kind === "basic") {
+    if (!credential.username || credential.username.trim() === "") {
+      throw new CalDavError("Benutzername darf nicht leer sein.");
+    }
+    if (!credential.password || credential.password.trim() === "") {
+      throw new CalDavError("Passwort darf nicht leer sein.");
+    }
   }
 }
 
@@ -537,17 +542,15 @@ function validateInputs(url: string, username: string, password: string): void {
  */
 export async function discoverUsers(
   url: string,
-  username: string,
-  password: string
+  credential: AuthCredential
 ): Promise<CalDavUser[]> {
-  validateInputs(url, username, password);
+  validateInputs(url, credential);
 
   try {
     const normalizedUrl = normalizeUrl(url);
     const responseBody = await sendReport(
       normalizedUrl,
-      username,
-      password,
+      credential,
       PRINCIPAL_SEARCH_XML
     );
     return parsePrincipalSearchResponse(responseBody);
@@ -572,11 +575,10 @@ export async function discoverUsers(
  */
 export async function searchUsers(
   url: string,
-  username: string,
-  password: string,
+  credential: AuthCredential,
   searchTerm: string
 ): Promise<CalDavUser[]> {
-  validateInputs(url, username, password);
+  validateInputs(url, credential);
   if (!searchTerm || searchTerm.trim() === "") {
     throw new CalDavError("Suchbegriff darf nicht leer sein.");
   }
@@ -586,8 +588,7 @@ export async function searchUsers(
     const searchXml = buildPrincipalSearchXml(searchTerm);
     const responseBody = await sendReport(
       normalizedUrl,
-      username,
-      password,
+      credential,
       searchXml
     );
     return parsePrincipalSearchResponse(responseBody);
@@ -618,18 +619,16 @@ export async function searchUsers(
  *
  * @param baseUrl   the base CalDAV URL used for the original connection
  * @param userHref  the href of the user's principal collection
- * @param username  the username for authentication
- * @param password  the password for authentication
+ * @param credential the authentication credential (Basic or Kerberos)
  * @param weekStart the Monday of the week as ISO date string "YYYY-MM-DD"
  */
 export async function fetchWeekEvents(
   baseUrl: string,
   userHref: string,
-  username: string,
-  password: string,
+  credential: AuthCredential,
   weekStart: string
 ): Promise<CalDavEvent[]> {
-  validateInputs(baseUrl, username, password);
+  validateInputs(baseUrl, credential);
 
   try {
     const normalizedBase = normalizeUrl(baseUrl);
@@ -662,8 +661,7 @@ export async function fetchWeekEvents(
       ).replace(/\{\{END\}\}/g, endStr);
       const responseBody = await sendCalendarReport(
         calendarUrl,
-        username,
-        password,
+        credential,
         reportXml
       );
       events = parseCalendarQueryResponse(responseBody, true, weekStart, weekEnd);
@@ -679,8 +677,7 @@ export async function fetchWeekEvents(
         ).replace(/\{\{END\}\}/g, endStr);
         const responseBody = await sendFreeBusyReport(
           calendarUrl,
-          username,
-          password,
+          credential,
           reportXml
         );
         events = parseFreeBusyResponse(responseBody);

@@ -5,13 +5,18 @@
  *   custom Tauri commands that wrap the `keyring` Rust crate.
  * - In browser (development): falls back to localStorage.
  *
- * Credentials are stored as { url, authHeader } where authHeader is the
- * HTTP Basic Auth value ("Basic <base64(username:password)>"). This avoids
- * storing the raw password — the password is only present in its
+ * For Basic Auth, credentials are stored as { authMode: "basic", authHeader }
+ * where authHeader is the HTTP Basic Auth value ("Basic <base64(username:password)>").
+ * This avoids storing the raw password — the password is only present in its
  * base64-encoded form inside the auth header.
+ *
+ * For Kerberos, there is no secret to store at all (the Windows domain ticket
+ * is managed by the OS) — only { authMode: "kerberos" } plus the URL/TLS flag
+ * are persisted, purely so "remember me" can restore the login mode.
  */
 
 import type { ConnectionInfo } from "../model/types.js";
+import { authDisplayName } from "../model/types.js";
 import { isTauri, buildBasicAuthHeader } from "./http.js";
 
 const LOCAL_STORAGE_KEY = "calview_credentials";
@@ -19,7 +24,8 @@ const LOCAL_STORAGE_KEY = "calview_credentials";
 /** Shape of what we persist (not the same as ConnectionInfo). */
 interface StoredCredentials {
   url: string;
-  authHeader: string;
+  authMode: "basic" | "kerberos";
+  authHeader?: string | null;
   acceptInvalidCerts: boolean;
 }
 
@@ -49,12 +55,20 @@ function decodeBasicAuth(authHeader: string): { username: string; password: stri
  * Convert stored credentials back to ConnectionInfo.
  */
 function toConnectionInfo(stored: StoredCredentials): ConnectionInfo | null {
+  if (stored.authMode === "kerberos") {
+    return {
+      url: stored.url,
+      auth: { kind: "kerberos" },
+      acceptInvalidCerts: stored.acceptInvalidCerts ?? false,
+    };
+  }
+
+  if (!stored.authHeader) return null;
   const decoded = decodeBasicAuth(stored.authHeader);
   if (!decoded) return null;
   return {
     url: stored.url,
-    username: decoded.username,
-    password: decoded.password,
+    auth: { kind: "basic", username: decoded.username, password: decoded.password },
     acceptInvalidCerts: stored.acceptInvalidCerts ?? false,
   };
 }
@@ -63,16 +77,24 @@ function toConnectionInfo(stored: StoredCredentials): ConnectionInfo | null {
  * Save credentials to persistent storage.
  */
 export async function saveCredentials(conn: ConnectionInfo): Promise<void> {
-  const authHeader = buildBasicAuthHeader(conn.username, conn.password);
-
   const acceptCerts = conn.acceptInvalidCerts ?? false;
-  console.log("[credential-store] saveCredentials: url=%s, user=%s, acceptInvalidCerts=%s, backend=%s",
-    conn.url, conn.username, acceptCerts, isTauri() ? "tauri" : "localStorage");
+  const stored: StoredCredentials =
+    conn.auth.kind === "basic"
+      ? {
+          url: conn.url,
+          authMode: "basic",
+          authHeader: buildBasicAuthHeader(conn.auth.username, conn.auth.password),
+          acceptInvalidCerts: acceptCerts,
+        }
+      : { url: conn.url, authMode: "kerberos", authHeader: null, acceptInvalidCerts: acceptCerts };
+
+  console.log("[credential-store] saveCredentials: url=%s, authMode=%s, acceptInvalidCerts=%s, backend=%s",
+    conn.url, conn.auth.kind, acceptCerts, isTauri() ? "tauri" : "localStorage");
 
   if (isTauri()) {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("save_credentials", { url: conn.url, authHeader, acceptInvalidCerts: acceptCerts });
+      await invoke("save_credentials", { ...stored });
       console.log("[credential-store] saveCredentials: Tauri invoke succeeded");
     } catch (e) {
       console.error("[credential-store] saveCredentials: Tauri invoke failed:", e);
@@ -80,7 +102,6 @@ export async function saveCredentials(conn: ConnectionInfo): Promise<void> {
     }
   } else {
     try {
-      const stored: StoredCredentials = { url: conn.url, authHeader, acceptInvalidCerts: acceptCerts };
       localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(stored));
       console.log("[credential-store] saveCredentials: localStorage write succeeded");
     } catch (e) {
@@ -110,7 +131,7 @@ export async function loadCredentials(): Promise<ConnectionInfo | null> {
       if (!conn) {
         console.warn("[credential-store] loadCredentials: failed to decode authHeader from stored credentials");
       } else {
-        console.log("[credential-store] loadCredentials: decoded user=%s", conn.username);
+        console.log("[credential-store] loadCredentials: decoded auth=%s", authDisplayName(conn.auth));
       }
       return conn;
     } catch (e) {
@@ -125,7 +146,7 @@ export async function loadCredentials(): Promise<ConnectionInfo | null> {
         return null;
       }
       const stored: StoredCredentials = JSON.parse(raw);
-      if (!stored?.url || !stored?.authHeader) {
+      if (!stored?.url || (stored.authMode !== "kerberos" && !stored?.authHeader)) {
         console.warn("[credential-store] loadCredentials: stored data missing url or authHeader:", stored);
         return null;
       }
@@ -135,7 +156,7 @@ export async function loadCredentials(): Promise<ConnectionInfo | null> {
       if (!conn) {
         console.warn("[credential-store] loadCredentials: failed to decode authHeader from stored credentials");
       } else {
-        console.log("[credential-store] loadCredentials: decoded user=%s", conn.username);
+        console.log("[credential-store] loadCredentials: decoded auth=%s", authDisplayName(conn.auth));
       }
       return conn;
     } catch (e) {

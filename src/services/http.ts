@@ -8,6 +8,8 @@
 // Timeout constants (matching Java's CONNECT_TIMEOUT and REQUEST_TIMEOUT)
 const REQUEST_TIMEOUT_MS = 30_000;
 
+import type { AuthCredential } from "../model/types.js";
+
 /**
  * Whether to accept invalid TLS certificates (e.g. self-signed or
  * incomplete chains). Only takes effect in Tauri mode; the Vite dev
@@ -224,4 +226,129 @@ export function buildBasicAuthHeader(
   password: string
 ): string {
   return "Basic " + btoa(username + ":" + password);
+}
+
+/**
+ * Whether the app is running as a Tauri app on Windows. Kerberos/Negotiate
+ * (Windows Integrated Authentication) is only available in that combination,
+ * since it relies on native SSPI calls made from the Rust side.
+ */
+export function isWindowsTauri(): boolean {
+  return (
+    isTauri() &&
+    typeof navigator !== "undefined" &&
+    navigator.userAgent.includes("Windows")
+  );
+}
+
+/**
+ * Result of one leg of the SPNEGO/Negotiate handshake, returned by the
+ * `spnego_start` / `spnego_continue` Tauri commands.
+ */
+interface SpnegoStepResult {
+  contextId: number;
+  tokenB64: string;
+  done: boolean;
+}
+
+/**
+ * Extracts the base64 token from a "WWW-Authenticate: Negotiate <token>"
+ * header value. Returns null if the header is absent, doesn't advertise
+ * Negotiate, or carries no continuation token (bare "Negotiate").
+ */
+function extractNegotiateToken(wwwAuthenticate: string | undefined): string | null {
+  if (!wwwAuthenticate) return null;
+  const match = wwwAuthenticate.match(/Negotiate\s+([A-Za-z0-9+/=]+)/i);
+  return match ? match[1] : null;
+}
+
+/** Whether a WWW-Authenticate header advertises the Negotiate scheme at all. */
+function offersNegotiate(wwwAuthenticate: string | undefined): boolean {
+  return !!wwwAuthenticate && /(^|,\s*)negotiate/i.test(wwwAuthenticate);
+}
+
+/**
+ * Sends a request using Kerberos/SPNEGO (Windows Integrated Authentication).
+ *
+ * Flow (RFC 4559): send the request unauthenticated; on a 401 response that
+ * advertises "Negotiate", ask the Rust side (native Windows SSPI, using the
+ * current user's existing Kerberos ticket) for a token, and retry with an
+ * "Authorization: Negotiate <token>" header. If the server replies with
+ * another 401 carrying a continuation token, feed it back for a further
+ * handshake leg (bounded, since NTLM-style multi-leg exchanges are finite).
+ */
+async function negotiateRequest(
+  options: HttpRequestOptions,
+  targetSpn: string
+): Promise<HttpResponse> {
+  let response = await httpRequest(options);
+  if (response.status !== 401) {
+    return response;
+  }
+  if (!offersNegotiate(response.headers["www-authenticate"])) {
+    return response;
+  }
+
+  const { invoke } = await import("@tauri-apps/api/core");
+
+  let step: SpnegoStepResult = await invoke("spnego_start", { targetSpn });
+  try {
+    const MAX_LEGS = 4;
+    for (let leg = 0; leg < MAX_LEGS; leg++) {
+      response = await httpRequest({
+        ...options,
+        headers: {
+          ...options.headers,
+          Authorization: `Negotiate ${step.tokenB64}`,
+        },
+      });
+
+      if (response.status !== 401 || step.done) {
+        break;
+      }
+
+      const serverTokenB64 = extractNegotiateToken(response.headers["www-authenticate"]);
+      if (!serverTokenB64) {
+        break;
+      }
+
+      step = await invoke("spnego_continue", {
+        contextId: step.contextId,
+        targetSpn,
+        serverTokenB64,
+      });
+    }
+  } finally {
+    await invoke("spnego_cleanup", { contextId: step.contextId }).catch(() => {});
+  }
+
+  return response;
+}
+
+/**
+ * Sends an authenticated CalDAV request, dispatching to Basic Auth or
+ * Kerberos/SPNEGO depending on the credential kind.
+ */
+export async function authenticatedRequest(
+  options: HttpRequestOptions,
+  credential: AuthCredential
+): Promise<HttpResponse> {
+  if (credential.kind === "basic") {
+    return httpRequest({
+      ...options,
+      headers: {
+        ...options.headers,
+        Authorization: buildBasicAuthHeader(credential.username, credential.password),
+      },
+    });
+  }
+
+  if (!isWindowsTauri()) {
+    throw new Error(
+      "Kerberos-Anmeldung ist nur in der Windows-Desktop-App verfügbar."
+    );
+  }
+
+  const targetSpn = "HTTP/" + new URL(options.url).hostname;
+  return negotiateRequest(options, targetSpn);
 }

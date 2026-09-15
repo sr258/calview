@@ -16,6 +16,7 @@ import type {
   CalDavUser,
   CalDavEvent,
   ConnectionInfo,
+  AuthCredential,
   ScheduleRow,
 } from "../model/types.js";
 import { CalDavError } from "../model/types.js";
@@ -158,17 +159,16 @@ export const scheduleRows = computed<ScheduleRow[]>(() => {
  */
 export async function connect(
   url: string,
-  username: string,
-  password: string
+  auth: AuthCredential
 ): Promise<string | null> {
-  console.log("[app-state] connect: url=%s, user=%s, acceptInvalidCerts=%s",
-    url, username, acceptInvalidCerts.value);
+  console.log("[app-state] connect: url=%s, auth=%s, acceptInvalidCerts=%s",
+    url, auth.kind, acceptInvalidCerts.value);
   loading.value = true;
   try {
     // Test connection with a dummy search (same as Java line 767)
-    await searchUsersOnServer(url, username, password, "a");
+    await searchUsersOnServer(url, auth, "a");
 
-    connection.value = { url, username, password };
+    connection.value = { url, auth };
     connected.value = true;
     showLoginDialog.value = false;
 
@@ -332,8 +332,7 @@ export async function searchUsers(
   try {
     const results = await searchUsersOnServer(
       connection.value.url,
-      connection.value.username,
-      connection.value.password,
+      connection.value.auth,
       searchTerm
     );
 
@@ -376,8 +375,7 @@ async function fetchEventsForSingleUser(
     const events = await fetchWeekEvents(
       connection.value.url,
       user.href,
-      connection.value.username,
-      connection.value.password,
+      connection.value.auth,
       currentWeekStart.value
     );
 
@@ -445,8 +443,8 @@ export async function initializeApp(): Promise<
       return { status: "none" };
     }
 
-    console.log("[app-state] initializeApp: found saved credentials — url=%s, user=%s, acceptInvalidCerts=%s",
-      saved.url, saved.username, saved.acceptInvalidCerts);
+    console.log("[app-state] initializeApp: found saved credentials — url=%s, auth=%s, acceptInvalidCerts=%s",
+      saved.url, saved.auth.kind, saved.acceptInvalidCerts);
 
     // Attempt auto-connect with saved credentials
     // Restore the acceptInvalidCerts flag BEFORE connecting, so the HTTP
@@ -454,7 +452,7 @@ export async function initializeApp(): Promise<
     acceptInvalidCerts.value = saved.acceptInvalidCerts ?? false;
     console.log("[app-state] initializeApp: set acceptInvalidCerts=%s, attempting auto-connect...",
       acceptInvalidCerts.value);
-    const error = await connect(saved.url, saved.username, saved.password);
+    const error = await connect(saved.url, saved.auth);
 
     if (error) {
       // Credentials are stale — clear them and show dialog
