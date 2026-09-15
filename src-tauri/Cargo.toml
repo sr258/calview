@@ -1,6 +1,6 @@
 [package]
 name = "calview"
-version = "1.1.0"
+version = "1.2.0-preview1"
 edition = "2021"
 license = "EUPL-1.2"
 authors = ["Sebastian Rettig <serettig@posteo.de>"]
@@ -19,7 +19,15 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 keyring = { version = "3", features = ["windows-native", "apple-native", "sync-secret-service"] }
 log = "0.4"
+base64 = "0.22"
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.62"
-features = ["Win32_Foundation", "Win32_System_Com", "Win32_System_Ole", "Win32_System_Variant"]
+features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Ole",
+    "Win32_System_Variant",
+    "Win32_Security_Authentication_Identity",
+    "Win32_Security_Credentials",
+]

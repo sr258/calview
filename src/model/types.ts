@@ -92,14 +92,32 @@ export interface ScheduleRow {
 }
 
 /**
+ * Authentication method used for CalDAV requests.
+ *
+ * - "basic": username/password sent as an HTTP Basic Authorization header.
+ * - "kerberos": Windows Integrated Authentication (SPNEGO/Negotiate) using the
+ *   current domain user's existing Kerberos ticket. No password is collected
+ *   or stored. Only available when running as a Tauri app on Windows.
+ */
+export type AuthCredential =
+  | { kind: "basic"; username: string; password: string }
+  | { kind: "kerberos" };
+
+/**
+ * Human-readable label for the connected identity, used in the toolbar and logs.
+ */
+export function authDisplayName(auth: AuthCredential): string {
+  return auth.kind === "basic" ? auth.username : "Windows-Anmeldung (Kerberos)";
+}
+
+/**
  * Stores connection credentials for the CalDAV server.
  *
  * Ported from: implicit fields in CalDavView.java (connectedUrl, connectedUsername, connectedPassword)
  */
 export interface ConnectionInfo {
   url: string;
-  username: string;
-  password: string;
+  auth: AuthCredential;
   acceptInvalidCerts?: boolean;
 }
 
