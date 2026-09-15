@@ -3,7 +3,7 @@
   "private": true,
   "license": "EUPL-1.2",
   "author": "Sebastian Rettig <serettig@posteo.de>",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
