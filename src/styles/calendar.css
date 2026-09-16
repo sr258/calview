@@ -228,6 +228,16 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
 }
 
+/* Events matched across multiple users' calendars (see getSharedEventKeys)
+   render once with a diagonal-striped background instead of one flat tint;
+   the dashed border reinforces that this block represents several owners. */
+.cal-event-shared {
+  border-left-width: 3px;
+  border-style: dashed;
+  border-color: var(--cal-event-color, var(--cv-primary));
+  border-width: 0 0 0 3px;
+}
+
 .cal-event-inner {
   padding: 2px 4px;
   overflow: hidden;

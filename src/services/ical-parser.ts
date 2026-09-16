@@ -21,15 +21,20 @@ const CLASS_PATTERN = /^CLASS[;:](.*)/m;
 const STATUS_PATTERN = /^STATUS[;:](.*)/m;
 const RRULE_PATTERN = /^RRULE[;:](.*)/m;
 const RECURRENCE_ID_PATTERN = /^RECURRENCE-ID[;:](.*)/m;
+const UID_PATTERN = /^UID[;:](.*)/m;
 const EXDATE_PATTERN = /^EXDATE[;:](.*)/gm;
 const FREEBUSY_PATTERN = /^FREEBUSY[;:](.*)/gm;
 const LOCATION_PATTERN = /^LOCATION[;:](.*)/m;
 const DESCRIPTION_PATTERN = /^DESCRIPTION[;:](.*)/m;
 // ORGANIZER/ATTENDEE keep their parameters (e.g. CN=...) separate from the
 // value, since the display name (CN) is more useful to show than the raw
-// mailto: URI.
-const ORGANIZER_PATTERN = /^ORGANIZER([^:\r\n]*):(.*)/m;
-const ATTENDEE_PATTERN = /^ATTENDEE([^:\r\n]*):(.*)/gm;
+// mailto: URI. The params/value split happens in code (see
+// splitPropertyParamsAndValue) rather than in the regex itself, since a
+// quoted parameter value (e.g. CN="Doe, John: Head of IT") may legally
+// contain a colon, which would otherwise be mistaken for the param/value
+// separator.
+const ORGANIZER_LINE_PATTERN = /^ORGANIZER(.*)$/m;
+const ATTENDEE_LINE_PATTERN = /^ATTENDEE(.*)$/gm;
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
@@ -91,6 +96,7 @@ export function parseICalendarData(
     description: string | null;
     organizer: string | null;
     attendees: string[];
+    uid: string | null;
   }
 
   const masters: VEventEntry[] = [];
@@ -130,6 +136,7 @@ export function parseICalendarData(
       description: unescapeICalText(extractICalProperty(veventBlock, DESCRIPTION_PATTERN)),
       organizer: extractOrganizer(veventBlock),
       attendees: extractAttendees(veventBlock),
+      uid: extractICalProperty(veventBlock, UID_PATTERN),
     };
 
     if (entry.rrule !== null) {
@@ -219,7 +226,7 @@ export function parseICalendarData(
         const status = master.classValue !== null ? master.classValue.trim() : "PUBLIC";
         const ev = makeEvent(
           master.summary, date, endDate, startTime, endTime, status, accessible,
-          master.location, master.description, master.organizer, master.attendees
+          master.location, master.description, master.organizer, master.attendees, master.uid
         );
         events.push(ev);
       }
@@ -251,7 +258,7 @@ export function parseICalendarData(
 function entryToEvent(
   entry: {
     summary: string | null; dtstart: string; dtend: string | null; duration: string | null; classValue: string | null;
-    location: string | null; description: string | null; organizer: string | null; attendees: string[];
+    location: string | null; description: string | null; organizer: string | null; attendees: string[]; uid: string | null;
   },
   accessible: boolean,
   exdates: Set<string>
@@ -283,7 +290,7 @@ function entryToEvent(
 
   return makeEvent(
     entry.summary, date, endDate, startTime, endTime, status, accessible,
-    entry.location, entry.description, entry.organizer, entry.attendees
+    entry.location, entry.description, entry.organizer, entry.attendees, entry.uid
   );
 }
 
@@ -384,7 +391,8 @@ function makeEvent(
   location: string | null = null,
   description: string | null = null,
   organizer: string | null = null,
-  attendees: string[] = []
+  attendees: string[] = [],
+  uid: string | null = null
 ): CalDavEvent {
   // An end time of exactly midnight belongs to the *end* of `endDate`, not its
   // start: computeEndDate() has already rolled the day back for such ends, so
@@ -396,7 +404,7 @@ function makeEvent(
     return {
       summary: summary !== null ? summary.trim() : "(Kein Titel)",
       date, endDate, startTime, endTime: end, status, accessible: true,
-      location, description, organizer, attendees,
+      location, description, organizer, attendees, uid,
     };
   }
   return {
@@ -878,14 +886,62 @@ export function formatICalDate(isoDate: string): string {
 }
 
 /**
+ * Splits an ORGANIZER/ATTENDEE property's parameter list (e.g.
+ * `;CN="Doe, John";SCHEDULE-STATUS=1.1`) into individual `KEY=value` parts.
+ * Respects double-quoted values so a semicolon inside a quoted CN isn't
+ * mistaken for a parameter separator.
+ */
+function splitICalParams(params: string): string[] {
+  const parts: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (const ch of params) {
+    if (ch === '"') inQuotes = !inQuotes;
+    if (ch === ";" && !inQuotes) {
+      parts.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  if (current !== "") parts.push(current);
+  return parts;
+}
+
+/**
+ * Splits the parameter/value portion of a property line (everything after
+ * the property name) at the first colon that isn't inside a quoted
+ * parameter value, per RFC 5545 §3.2 (quoted param-values may contain ':'
+ * and ';', which a naive first-colon split would misinterpret as the
+ * params/value separator).
+ */
+function splitPropertyParamsAndValue(rest: string): { params: string; value: string } {
+  let inQuotes = false;
+  for (let i = 0; i < rest.length; i++) {
+    const ch = rest[i];
+    if (ch === '"') inQuotes = !inQuotes;
+    else if (ch === ":" && !inQuotes) {
+      return { params: rest.substring(0, i), value: rest.substring(i + 1) };
+    }
+  }
+  return { params: rest, value: "" };
+}
+
+/**
  * Extracts a display name from an ORGANIZER/ATTENDEE property's parameters
  * and value, preferring the CN (common name) parameter over the raw
  * "mailto:" value.
  */
 function extractDisplayName(params: string, value: string): string {
-  const cnMatch = /CN=(?:"([^"]*)"|([^;]+))/.exec(params);
-  if (cnMatch) {
-    return (cnMatch[1] ?? cnMatch[2]).trim();
+  for (const part of splitICalParams(params)) {
+    const eqIdx = part.indexOf("=");
+    if (eqIdx === -1) continue;
+    if (part.substring(0, eqIdx).trim().toUpperCase() !== "CN") continue;
+    let cnValue = part.substring(eqIdx + 1).trim();
+    if (cnValue.length >= 2 && cnValue.startsWith('"') && cnValue.endsWith('"')) {
+      cnValue = cnValue.slice(1, -1);
+    }
+    return cnValue;
   }
   const mailtoMatch = /^mailto:(.+)$/i.exec(value.trim());
   if (mailtoMatch) {
@@ -899,10 +955,11 @@ function extractDisplayName(params: string, value: string): string {
  * no ORGANIZER property is present.
  */
 function extractOrganizer(block: string): string | null {
-  const regex = new RegExp(ORGANIZER_PATTERN.source, "m");
+  const regex = new RegExp(ORGANIZER_LINE_PATTERN.source, "m");
   const match = regex.exec(block);
   if (!match) return null;
-  return extractDisplayName(match[1], match[2]);
+  const { params, value } = splitPropertyParamsAndValue(match[1]);
+  return extractDisplayName(params, value);
 }
 
 /**
@@ -910,11 +967,12 @@ function extractOrganizer(block: string): string | null {
  * A VEVENT may contain multiple ATTENDEE lines, one per participant.
  */
 function extractAttendees(block: string): string[] {
-  const regex = new RegExp(ATTENDEE_PATTERN.source, ATTENDEE_PATTERN.flags);
+  const regex = new RegExp(ATTENDEE_LINE_PATTERN.source, ATTENDEE_LINE_PATTERN.flags);
   const attendees: string[] = [];
   let match: RegExpExecArray | null;
   while ((match = regex.exec(block)) !== null) {
-    attendees.push(extractDisplayName(match[1], match[2]));
+    const { params, value } = splitPropertyParamsAndValue(match[1]);
+    attendees.push(extractDisplayName(params, value));
   }
   return attendees;
 }

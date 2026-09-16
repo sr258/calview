@@ -101,6 +101,26 @@ function getUserColorTint(name: string): string {
   return `hsla(${hue.toFixed(1)}, ${saturation}%, 50%, 0.14)`;
 }
 
+/**
+ * Builds a diagonal-striped background from each owner's color tint, used
+ * to mark an event that appears on more than one selected user's calendar
+ * (the same appointment, detected via iCal UID or a date/time/summary
+ * fallback — see `getSharedEventKeys`) so it can be shown once instead of as
+ * separate overlapping blocks per owner.
+ */
+function getSharedEventStripeBackground(names: string[]): string {
+  const stripeWidthPx = 14;
+  const bandCount = names.length;
+  const stops: string[] = [];
+  names.forEach((name, i) => {
+    const tint = getUserColorTint(name);
+    const from = (i / bandCount) * stripeWidthPx;
+    const to = ((i + 1) / bandCount) * stripeWidthPx;
+    stops.push(`${tint} ${from}px`, `${tint} ${to}px`);
+  });
+  return `repeating-linear-gradient(135deg, ${stops.join(", ")})`;
+}
+
 export interface CalendarViewProps {
   onSlotClick?: (params: OutlookAppointmentParams) => void;
   onEventClick?: (entries: EventWithOwner[]) => void;
@@ -287,13 +307,16 @@ interface CalendarEventBlockProps {
 }
 
 function CalendarEventBlock({ pe, onEventClick }: CalendarEventBlockProps) {
-  const { event, user, top, height, left, width } = pe;
+  const { event, user, top, height, left, width, owners } = pe;
+  const isShared = owners.length > 1;
 
   const color = getUserColor(user.displayName);
   const isShort = height < 30;
 
   // Build label
-  let label = user.displayName;
+  let label = isShared
+    ? owners.map((o) => o.user.displayName).join(", ")
+    : user.displayName;
   if (event.accessible && event.summary) {
     label = event.summary;
   }
@@ -307,7 +330,11 @@ function CalendarEventBlock({ pe, onEventClick }: CalendarEventBlockProps) {
   // Tooltip
   const tooltipParts = [label];
   if (timeStr) tooltipParts.push(timeStr);
-  tooltipParts.push(user.displayName);
+  tooltipParts.push(
+    isShared
+      ? `Gemeinsamer Termin: ${owners.map((o) => o.user.displayName).join(", ")}`
+      : user.displayName
+  );
   if (event.accessible && event.location) {
     tooltipParts.push(`Ort: ${event.location}`);
   }
@@ -323,13 +350,21 @@ function CalendarEventBlock({ pe, onEventClick }: CalendarEventBlockProps) {
   // background/box-shadow, drowning out the per-person border color. Only
   // status-only events (free/busy without details) keep that shared,
   // status-based coloring, since there the color conveys FBTYPE, not identity.
+  // Events shared across multiple owners' calendars get a diagonally striped
+  // background blending every owner's color instead of a single flat tint.
   const accessibleStyle = event.accessible
-    ? { backgroundColor: getUserColorTint(user.displayName), boxShadow: `inset 3px 0 0 ${color}`, color: "var(--cv-text-primary)" }
+    ? {
+        background: isShared
+          ? getSharedEventStripeBackground(owners.map((o) => o.user.displayName))
+          : getUserColorTint(user.displayName),
+        boxShadow: `inset 3px 0 0 ${color}`,
+        color: "var(--cv-text-primary)",
+      }
     : {};
 
   return (
     <div
-      class={`cal-event ${cssClass}`}
+      class={`cal-event ${cssClass}${isShared ? " cal-event-shared" : ""}`}
       style={{
         top: `${top}px`,
         height: `${height}px`,
@@ -342,7 +377,7 @@ function CalendarEventBlock({ pe, onEventClick }: CalendarEventBlockProps) {
       title={tooltip}
       onClick={(e: MouseEvent) => {
         e.stopPropagation();
-        onEventClick?.([{ user, event }]);
+        onEventClick?.(owners.map((o) => ({ user: o.user, event })));
       }}
     >
       <div class="cal-event-inner">

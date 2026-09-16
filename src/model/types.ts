@@ -41,6 +41,10 @@ export interface CalDavUser {
  *                       mailto address), or null if absent or inaccessible
  * @property attendees - display names of all attendees (from ATTENDEE's CN, falling back to the
  *                       mailto address); empty for inaccessible (free-busy-only) events
+ * @property uid - the iCalendar UID property, identifying the same event across different
+ *                 calendars/attendees (e.g. a meeting invite in both the organizer's and an
+ *                 attendee's calendar); null if absent or inaccessible (free-busy-only events
+ *                 never carry a UID)
  */
 export interface CalDavEvent {
   summary: string | null;
@@ -54,6 +58,7 @@ export interface CalDavEvent {
   description?: string | null;
   organizer?: string | null;
   attendees?: string[];
+  uid?: string | null;
 }
 
 /**
@@ -147,17 +152,35 @@ export class CalDavError extends Error {
 // ─── Calendar View Types ───────────────────────────────────────────────────
 
 /**
+ * A single owner of a (possibly shared) positioned event: the user whose
+ * calendar it came from, plus their index in selectedUsers for color
+ * assignment.
+ */
+export interface PositionedEventOwner {
+  user: CalDavUser;
+  userIndex: number;
+}
+
+/**
  * An event positioned for the classic calendar view.
  * Contains pixel-level layout information for absolute positioning
  * within a day column.
+ *
+ * When the same event (matched by iCal UID, or by date/time/summary as a
+ * fallback) appears on more than one selected user's calendar, it is
+ * collapsed into a single `PositionedEvent` whose `owners` lists every
+ * matching user, so it renders once (with a striped color) instead of as
+ * separate overlapping blocks.
  */
 export interface PositionedEvent {
-  /** The original event data. */
+  /** The original event data (from the first owner encountered). */
   event: CalDavEvent;
-  /** The user who owns this event. */
+  /** The user who owns this event. For shared events, the first owner. */
   user: CalDavUser;
-  /** Index of the user in selectedUsers (for color assignment). */
+  /** Index of the user in selectedUsers (for color assignment). For shared events, the first owner's index. */
   userIndex: number;
+  /** Every user this event appears under. Length > 1 for shared events. */
+  owners: PositionedEventOwner[];
   /** Top offset in pixels from the grid start (07:00). */
   top: number;
   /** Height in pixels. */

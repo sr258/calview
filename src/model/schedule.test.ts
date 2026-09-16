@@ -1060,4 +1060,86 @@ describe("buildPositionedEventsForDay", () => {
     const result = buildPositionedEventsForDay([userA], events, "2025-02-10");
     expect(result).toHaveLength(0);
   });
+
+  describe("shared event merging", () => {
+    const userB: CalDavUser = { displayName: "Bob", href: "/bob" };
+
+    it("merges events with the same UID into a single entry with both owners", () => {
+      const events = new Map<string, CalDavEvent[]>();
+      events.set("/alice", [
+        makeEvent({ startTime: "09:00", endTime: "10:00", uid: "meeting-1" }),
+      ]);
+      events.set("/bob", [
+        makeEvent({ startTime: "09:00", endTime: "10:00", uid: "meeting-1" }),
+      ]);
+      const result = buildPositionedEventsForDay([userA, userB], events, "2025-02-10");
+      expect(result).toHaveLength(1);
+      expect(result[0].width).toBe(1); // occupies a single column, not two
+      expect(result[0].owners).toHaveLength(2);
+      expect(result[0].owners.map((o) => o.user.displayName)).toEqual(["Alice", "Bob"]);
+    });
+
+    it("merges events with no UID via the date/time/summary fallback", () => {
+      const events = new Map<string, CalDavEvent[]>();
+      events.set("/alice", [
+        makeEvent({ startTime: "09:00", endTime: "10:00", summary: "Standup" }),
+      ]);
+      events.set("/bob", [
+        makeEvent({ startTime: "09:00", endTime: "10:00", summary: "Standup" }),
+      ]);
+      const result = buildPositionedEventsForDay([userA, userB], events, "2025-02-10");
+      expect(result).toHaveLength(1);
+      expect(result[0].owners).toHaveLength(2);
+    });
+
+    it("does not merge distinct events that merely overlap in time", () => {
+      const events = new Map<string, CalDavEvent[]>();
+      events.set("/alice", [
+        makeEvent({ startTime: "09:00", endTime: "10:00", summary: "Alice's 1:1" }),
+      ]);
+      events.set("/bob", [
+        makeEvent({ startTime: "09:00", endTime: "10:00", summary: "Bob's 1:1" }),
+      ]);
+      const result = buildPositionedEventsForDay([userA, userB], events, "2025-02-10");
+      expect(result).toHaveLength(2);
+      expect(result.every((pe) => pe.owners.length === 1)).toBe(true);
+    });
+
+    it("merges via the date/time/summary fallback even when both events have different UIDs", () => {
+      // Regression test: some CalDAV backends assign a different UID to each
+      // attendee's copy of the same meeting (e.g. a Microsoft "Global Object
+      // ID" hex blob for one calendar vs. a plain UUID for another) — the
+      // events must still merge via the fallback key rather than being
+      // blocked because both sides technically have a (mismatched) UID.
+      const events = new Map<string, CalDavEvent[]>();
+      events.set("/alice", [
+        makeEvent({
+          startTime: "09:00", endTime: "10:00", summary: "Standup",
+          uid: "040000008200E00074C5B7101A82E00800000000C0AF8F531D24DD0100000000000000001000000076D7847F67A20E41B4BE426C4AF14B59",
+        }),
+      ]);
+      events.set("/bob", [
+        makeEvent({
+          startTime: "09:00", endTime: "10:00", summary: "Standup",
+          uid: "ed219b6e-1442-401d-a678-ac1039861350",
+        }),
+      ]);
+      const result = buildPositionedEventsForDay([userA, userB], events, "2025-02-10");
+      expect(result).toHaveLength(1);
+      expect(result[0].owners).toHaveLength(2);
+    });
+
+    it("does not merge inaccessible (free-busy-only) events", () => {
+      const events = new Map<string, CalDavEvent[]>();
+      events.set("/alice", [
+        makeEvent({ startTime: "09:00", endTime: "10:00", summary: null, accessible: false }),
+      ]);
+      events.set("/bob", [
+        makeEvent({ startTime: "09:00", endTime: "10:00", summary: null, accessible: false }),
+      ]);
+      const result = buildPositionedEventsForDay([userA, userB], events, "2025-02-10");
+      expect(result).toHaveLength(2);
+      expect(result.every((pe) => pe.owners.length === 1)).toBe(true);
+    });
+  });
 });
