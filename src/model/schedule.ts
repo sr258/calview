@@ -9,7 +9,7 @@
  * side effects. This makes them easy to test and reason about.
  */
 
-import type { CalDavUser, CalDavEvent, SlotInfo, ScheduleRow, MergedCell, PositionedEvent } from "./types.js";
+import type { CalDavUser, CalDavEvent, SlotInfo, ScheduleRow, MergedCell, PositionedEvent, PositionedEventOwner } from "./types.js";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 // Ported from CalDavView.java lines 69-84
@@ -246,6 +246,30 @@ export function getSlotLabel(event: CalDavEvent, colSpan: number = 1): string | 
  */
 export function getEventKey(event: CalDavEvent): string {
   return `${event.date}|${event.startTime}|${event.endTime}|${event.summary}|${event.status}|${event.accessible}`;
+}
+
+/**
+ * Returns candidate keys identifying "the same" underlying appointment
+ * across different users' calendars (e.g. a meeting invite that appears
+ * both in the organizer's and an attendee's calendar). Two events are
+ * considered the same appointment if they share *any* key in common — not
+ * just their first/preferred one.
+ *
+ * Includes both the iCalendar UID (stable and unambiguous when consistent)
+ * and a date/time/summary fallback, since some CalDAV backends assign a
+ * *different* UID to each attendee's copy of the same meeting (e.g. a
+ * Microsoft "Global Object ID" hex blob on one side vs. a plain UUID on
+ * the other) — relying on UID alone would then never match, even though
+ * the events are otherwise identical. Free-busy-only (inaccessible) events
+ * are never matched: they carry neither a UID nor a summary, so any match
+ * would just be two unrelated busy blocks that happen to align.
+ */
+export function getSharedEventKeys(event: CalDavEvent): string[] {
+  if (!event.accessible) return [];
+  const keys: string[] = [];
+  if (event.uid) keys.push(`uid:${event.uid}`);
+  if (event.summary) keys.push(`fallback:${event.date}|${event.startTime}|${event.endTime}|${event.summary}`);
+  return keys;
 }
 
 /**
@@ -740,6 +764,7 @@ interface LayoutEntry {
   event: CalDavEvent;
   user: CalDavUser;
   userIndex: number;
+  owners: PositionedEventOwner[];
   startMin: number; // minutes from SCHEDULE_START
   endMin: number;
   col: number;      // assigned column within its overlap group
@@ -757,7 +782,7 @@ interface LayoutEntry {
  * plus the total number of columns used (`maxCol + 1`).
  */
 export function layoutOverlappingEvents(
-  events: { event: CalDavEvent; user: CalDavUser; userIndex: number }[]
+  events: { event: CalDavEvent; user: CalDavUser; userIndex: number; owners?: PositionedEventOwner[] }[]
 ): { entries: LayoutEntry[]; totalColumns: number } {
   if (events.length === 0) {
     return { entries: [], totalColumns: 0 };
@@ -771,7 +796,8 @@ export function layoutOverlappingEvents(
     const endMin = e.event.endTime
       ? Math.min(SCHEDULE_END_MINUTES - SCHEDULE_START_MINUTES, parseTimeToMinutes(e.event.endTime) - SCHEDULE_START_MINUTES)
       : SCHEDULE_END_MINUTES - SCHEDULE_START_MINUTES;
-    return { ...e, startMin, endMin: Math.max(endMin, startMin + 5), col: 0 };
+    const owners = e.owners ?? [{ user: e.user, userIndex: e.userIndex }];
+    return { ...e, owners, startMin, endMin: Math.max(endMin, startMin + 5), col: 0 };
   });
 
   // Sort by start time ascending, then by duration descending (longer events first)
@@ -806,8 +832,10 @@ export function layoutOverlappingEvents(
 /**
  * Builds `PositionedEvent[]` for a single day in the calendar view.
  *
- * For each selected user, collects their events on the given day,
- * runs the overlap layout algorithm, and computes pixel coordinates
+ * For each selected user, collects their events on the given day, merges
+ * entries that represent the same underlying appointment across different
+ * users' calendars (see `getSharedEventKeys`) into a single multi-owner
+ * entry, runs the overlap layout algorithm, and computes pixel coordinates
  * for absolute positioning within the day column.
  *
  * @param users         ordered list of selected users
@@ -820,8 +848,10 @@ export function buildPositionedEventsForDay(
   userEvents: Map<string, CalDavEvent[]>,
   dayDate: string
 ): PositionedEvent[] {
-  // Collect all events across all users for this day
-  const allEvents: { event: CalDavEvent; user: CalDavUser; userIndex: number }[] = [];
+  // Collect all events across all users for this day, merging events that
+  // match the same shared-event key into a single entry with multiple owners.
+  const merged: { event: CalDavEvent; owners: PositionedEventOwner[] }[] = [];
+  const byKey = new Map<string, { event: CalDavEvent; owners: PositionedEventOwner[] }>();
 
   for (let i = 0; i < users.length; i++) {
     const user = users[i];
@@ -831,9 +861,33 @@ export function buildPositionedEventsForDay(
       // Skip events without times (all-day) for now — they'd go in a
       // separate header row. We still include them but render them as
       // spanning the full day.
-      allEvents.push({ event, user, userIndex: i });
+      const owner: PositionedEventOwner = { user, userIndex: i };
+      const keys = getSharedEventKeys(event);
+      // Match against ANY of this event's keys — a UID match and a
+      // content-based (date/time/summary) match are both sufficient, since
+      // some CalDAV backends assign different UIDs per attendee copy.
+      let existing: { event: CalDavEvent; owners: PositionedEventOwner[] } | undefined;
+      for (const key of keys) {
+        existing = byKey.get(key);
+        if (existing) break;
+      }
+      if (existing) {
+        existing.owners.push(owner);
+        for (const key of keys) byKey.set(key, existing);
+        continue;
+      }
+      const mergedEntry = { event, owners: [owner] };
+      merged.push(mergedEntry);
+      for (const key of keys) byKey.set(key, mergedEntry);
     }
   }
+
+  const allEvents = merged.map((m) => ({
+    event: m.event,
+    user: m.owners[0].user,
+    userIndex: m.owners[0].userIndex,
+    owners: m.owners,
+  }));
 
   const { entries, totalColumns } = layoutOverlappingEvents(allEvents);
 
@@ -848,6 +902,7 @@ export function buildPositionedEventsForDay(
       event: entry.event,
       user: entry.user,
       userIndex: entry.userIndex,
+      owners: entry.owners,
       top,
       height,
       left,

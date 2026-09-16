@@ -514,6 +514,31 @@ END:VCALENDAR`;
     expect(events[0].date).toBe("2025-02-10");
     expect(events[0].startTime).toBe("10:00");
     expect(events[0].endTime).toBe("11:00");
+    expect(events[0].uid).toBe("duration-1@example.com");
+  });
+
+  it("returns null uid when absent, and never sets uid on inaccessible events", () => {
+    const icalNoUid = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART:20250210T100000Z
+DTEND:20250210T110000Z
+SUMMARY:No Uid Meeting
+END:VEVENT
+END:VCALENDAR`;
+    expect(parseICalendarData(icalNoUid, true)[0].uid).toBeNull();
+
+    const icalWithUid = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART:20250210T100000Z
+DTEND:20250210T110000Z
+SUMMARY:Private Meeting
+UID:private-1@example.com
+END:VEVENT
+END:VCALENDAR`;
+    // accessible=false simulates a free-busy-only view of someone else's calendar
+    expect(parseICalendarData(icalWithUid, false)[0].uid).toBeUndefined();
   });
 
   it("parses event with 90-minute DURATION", () => {
@@ -557,6 +582,31 @@ END:VCALENDAR`;
     expect(events[0].description).toBe("Agenda:\nIntro, goals and next steps");
     expect(events[0].organizer).toBe("Jane Smith");
     expect(events[0].attendees).toEqual(["John Doe", "Doe, Ann"]);
+  });
+
+  it("parses ORGANIZER/ATTENDEE correctly when a quoted parameter value contains a colon", () => {
+    // Regression test: a colon inside a quoted param value (e.g. a CN with a
+    // title, or another quoted param appearing before CN) must not be
+    // mistaken for the params/value separator — that previously caused the
+    // leftover parameter text (e.g. "SCHEDULE-AGENT=CLIENT;SCHEDULE-STATUS=1.1")
+    // to leak into the displayed organizer/attendee name.
+    const ical = `BEGIN:VCALENDAR
+VERSION:2.0
+BEGIN:VEVENT
+DTSTART:20250210T100000Z
+DTEND:20250210T110000Z
+SUMMARY:Quoted Param Colon
+ORGANIZER;CN="Doe, John: Head of IT";SCHEDULE-AGENT=CLIENT;SCHEDULE-STATUS=1.1:mailto:john@example.com
+ATTENDEE;X-NOTE="Room: 5";SCHEDULE-STATUS=1.1;CN=Jane Smith:mailto:jane@example.com
+UID:quoted-colon@example.com
+END:VEVENT
+END:VCALENDAR`;
+
+    const events = parseICalendarData(ical, true);
+
+    expect(events).toHaveLength(1);
+    expect(events[0].organizer).toBe("Doe, John: Head of IT");
+    expect(events[0].attendees).toEqual(["Jane Smith"]);
   });
 
   it("does not expose ORGANIZER/ATTENDEE/LOCATION/DESCRIPTION for free-busy-only events", () => {
