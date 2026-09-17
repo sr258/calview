@@ -1161,49 +1161,60 @@ END:VCALENDAR
 // Ported from CalDavServiceTest.java (53 lines, 6 tests)
 // =========================================================================
 
+const basicCred = { kind: "basic" as const, username: "user", password: "pass" };
+const kerberosCred = { kind: "kerberos" as const };
+
 describe("validation", () => {
   it("discoverUsers rejects blank URL", async () => {
-    await expect(discoverUsers("", "user", "pass")).rejects.toThrow(
-      CalDavError
-    );
-    await expect(discoverUsers("", "user", "pass")).rejects.toThrow(
+    await expect(discoverUsers("", basicCred)).rejects.toThrow(CalDavError);
+    await expect(discoverUsers("", basicCred)).rejects.toThrow(
       /URL darf nicht leer/
     );
   });
 
   it("discoverUsers rejects blank username", async () => {
+    const cred = { kind: "basic" as const, username: "", password: "pass" };
     await expect(
-      discoverUsers("https://example.com", "", "pass")
+      discoverUsers("https://example.com", cred)
     ).rejects.toThrow(CalDavError);
     await expect(
-      discoverUsers("https://example.com", "", "pass")
+      discoverUsers("https://example.com", cred)
     ).rejects.toThrow(/Benutzername darf nicht leer/);
   });
 
   it("discoverUsers rejects blank password", async () => {
+    const cred = { kind: "basic" as const, username: "user", password: "" };
     await expect(
-      discoverUsers("https://example.com", "user", "")
+      discoverUsers("https://example.com", cred)
     ).rejects.toThrow(CalDavError);
     await expect(
-      discoverUsers("https://example.com", "user", "")
+      discoverUsers("https://example.com", cred)
     ).rejects.toThrow(/Passwort darf nicht leer/);
+  });
+
+  it("discoverUsers does not require username/password for Kerberos", async () => {
+    // Kerberos requests still fail (no Tauri/SSPI backend in tests), but the
+    // failure must NOT be the "Benutzername/Passwort darf nicht leer" validation error.
+    await expect(
+      discoverUsers("https://example.com", kerberosCred)
+    ).rejects.not.toThrow(/darf nicht leer/);
   });
 
   it("searchUsers rejects blank search term", async () => {
     await expect(
-      searchUsers("https://example.com", "user", "pass", "")
+      searchUsers("https://example.com", basicCred, "")
     ).rejects.toThrow(CalDavError);
     await expect(
-      searchUsers("https://example.com", "user", "pass", "")
+      searchUsers("https://example.com", basicCred, "")
     ).rejects.toThrow(/Suchbegriff darf nicht leer/);
   });
 
   it("searchUsers rejects blank URL", async () => {
     await expect(
-      searchUsers("", "user", "pass", "test")
+      searchUsers("", basicCred, "test")
     ).rejects.toThrow(CalDavError);
     await expect(
-      searchUsers("", "user", "pass", "test")
+      searchUsers("", basicCred, "test")
     ).rejects.toThrow(/URL darf nicht leer/);
   });
 });

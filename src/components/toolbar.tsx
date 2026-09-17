@@ -17,6 +17,7 @@ import {
   disconnect,
   initializing,
 } from "../state/app-state.js";
+import { authDisplayName } from "../model/types.js";
 
 export interface ToolbarProps {
   onOpenHelp: () => void;
@@ -25,7 +26,7 @@ export interface ToolbarProps {
 
 export function Toolbar({ onOpenHelp, onOpenAbout }: ToolbarProps) {
   const isConnected = connected.value;
-  const username = connection.value?.username;
+  const username = connection.value ? authDisplayName(connection.value.auth) : undefined;
 
   const handleConnect = () => {
     showLoginDialog.value = true;

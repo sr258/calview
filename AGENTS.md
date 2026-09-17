@@ -85,7 +85,8 @@ calview/
 │       └── schedule.css          # Schedule grid styles (slot colors, layout)
 ├── src-tauri/                    # Tauri v2 Rust backend
 │   ├── src/
-│   │   ├── lib.rs                # Registers HTTP plugin
+│   │   ├── lib.rs                # Registers HTTP plugin, keychain + SPNEGO commands
+│   │   ├── spnego.rs             # Kerberos/Negotiate (Windows SSPI), Windows-only
 │   │   └── main.rs               # Tauri entry point
 │   ├── Cargo.toml                # Rust dependencies (tauri, tauri-plugin-http)
 │   ├── tauri.conf.json           # App config: window, build commands, HTTP permissions
@@ -126,6 +127,16 @@ calview/
 - `fetchWeekEvents(conn, userHref, weekStart)` -- calendar-query REPORT, falls back to free-busy REPORT on 403
 - XML building functions for CalDAV request bodies
 - Response parsing using `DOMParser` with namespace-aware queries
+
+### Authentication (`AuthCredential` in `model/types.ts`)
+
+Two credential kinds, dispatched in `services/http.ts` (`authenticatedRequest`):
+
+- **Basic** (`{ kind: "basic", username, password }`) -- always available, works via the Tauri HTTP plugin/dev proxy like any other request.
+- **Kerberos** (`{ kind: "kerberos" }`) -- Windows Integrated Authentication (SPNEGO/Negotiate, RFC 4559) using the current domain user's existing ticket. No password is ever collected or stored.
+  - Only offered in the login dialog when `isWindowsTauri()` is true (Tauri + Windows user agent).
+  - The handshake (401 → `Negotiate` token → retry, possibly multiple legs) is orchestrated in `services/http.ts`; the actual SSPI calls (`AcquireCredentialsHandleW`/`InitializeSecurityContextW`) live in `src-tauri/src/spnego.rs`, exposed as the `spnego_start`/`spnego_continue`/`spnego_cleanup` Tauri commands.
+  - **Testing caveat**: GitHub Actions Windows runners are not domain-joined, so CI only verifies `spnego.rs` compiles (via `cargo xwin check --target x86_64-pc-windows-msvc`, see `CROSS_COMPILE.md`) -- it cannot exercise a real handshake against a KDC. The handshake *orchestration* (retries, header parsing, cleanup) is covered by mocked unit tests in `services/http.test.ts`; the native SSPI calls themselves must be verified manually on a domain-joined Windows machine.
 
 ## CSS Custom Properties
 

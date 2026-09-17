@@ -1,26 +1,37 @@
 use serde::{Deserialize, Serialize};
 
+mod spnego;
+use spnego::{spnego_cleanup, spnego_continue, spnego_start};
+
 const KEYRING_SERVICE: &str = "calview";
 const KEYRING_USER: &str = "credentials";
 
 #[derive(Serialize, Deserialize)]
 struct StoredCredentials {
     url: String,
-    #[serde(rename = "authHeader")]
-    auth_header: String,
+    #[serde(rename = "authMode", default = "default_auth_mode")]
+    auth_mode: String,
+    #[serde(rename = "authHeader", default)]
+    auth_header: Option<String>,
     #[serde(rename = "acceptInvalidCerts", default)]
     accept_invalid_certs: bool,
+}
+
+fn default_auth_mode() -> String {
+    "basic".to_string()
 }
 
 /// Save CalDAV credentials to the OS keychain.
 #[tauri::command]
 fn save_credentials(
     url: String,
-    auth_header: String,
+    auth_mode: String,
+    auth_header: Option<String>,
     accept_invalid_certs: bool,
 ) -> Result<(), String> {
     let creds = StoredCredentials {
         url,
+        auth_mode,
         auth_header,
         accept_invalid_certs,
     };
@@ -494,6 +505,9 @@ pub fn run() {
             get_credentials,
             delete_credentials,
             open_outlook_appointment,
+            spnego_start,
+            spnego_continue,
+            spnego_cleanup,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
