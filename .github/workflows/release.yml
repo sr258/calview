@@ -102,6 +102,9 @@ jobs:
 
       - run: npx tauri build --bundles deb,appimage
 
+      - name: Strip over-bundled display-stack libs from AppImage
+        run: .github/scripts/fix-appimage.sh
+
       - uses: actions/upload-artifact@v7
         with:
           name: calview-linux
