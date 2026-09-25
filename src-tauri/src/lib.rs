@@ -485,8 +485,44 @@ fn open_outlook_appointment(
     }
 }
 
+/// Work around incompatibilities between libraries bundled in the AppImage
+/// (built on an older distro) and the host system's graphics/GIO stack.
+///
+/// - The bundled WebKitGTK's DMABUF renderer creates its EGL display through
+///   the host's Mesa, which fails on newer hosts with
+///   "Could not create default EGL display: EGL_BAD_PARAMETER. Aborting..."
+///   and leaves the window blank. Fall back to the non-DMABUF renderer.
+/// - GIO would load the host's gvfs modules, which are linked against a newer
+///   GLib than the bundled one ("undefined symbol: g_variant_builder_init_static").
+///   Restrict GIO to the modules shipped inside the AppImage.
+///
+/// Must run before any threads are spawned. Variables already set by the user win.
+#[cfg(target_os = "linux")]
+fn apply_appimage_workarounds() {
+    let Some(appdir) = std::env::var_os("APPDIR") else {
+        return;
+    };
+    if std::env::var_os("APPIMAGE").is_none() {
+        return;
+    }
+
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
+
+    if std::env::var_os("GIO_MODULE_DIR").is_none() {
+        let modules = std::path::Path::new(&appdir).join("usr/lib/x86_64-linux-gnu/gio/modules");
+        if modules.is_dir() {
+            std::env::set_var("GIO_MODULE_DIR", modules);
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    apply_appimage_workarounds();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_http::init())
         .invoke_handler(tauri::generate_handler![
