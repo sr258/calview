@@ -16,12 +16,12 @@
   "dependencies": {
     "@preact/signals": "^2.11.2",
     "@tauri-apps/api": "^2.10.1",
-    "@tauri-apps/plugin-http": "^2.6.0",
+    "@tauri-apps/plugin-http": "^2.6.1",
     "preact": "^10.29.8"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.6",
-    "@tauri-apps/cli": "^2.11.4",
+    "@tauri-apps/cli": "^2.11.5",
     "@types/node": "^26.6.2",
     "jsdom": "^30.0.1",
     "typescript": "^5.9.3",
