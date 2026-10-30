@@ -14,7 +14,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@preact/signals": "^2.11.3",
+    "@preact/signals": "^2.11.4",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-http": "^2.8.3",
     "preact": "^10.29.8"
