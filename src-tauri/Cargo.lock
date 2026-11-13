@@ -3550,14 +3550,15 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-http"
-version = "2.8.3"
+version = "2.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c57e3451553f95a1db3bfed6a358a77ce5080b6399a242c6eadac113f97abd2"
+checksum = "c278945f30912c8c32728265c66d16ca1b139509c4874d00579f5c8c5276605a"
 dependencies = [
  "bytes",
  "cookie_store",
  "data-url",
  "http",
+ "percent-encoding",
  "regex",
  "reqwest 0.12.28",
  "schemars 0.8.22",
