@@ -22,6 +22,9 @@ rm -f "$WORKDIR"/squashfs-root/usr/lib/{libwayland-client.so.0,libwayland-cursor
 curl -sL -o "$WORKDIR/appimagetool" https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
 chmod +x "$WORKDIR/appimagetool"
 
+# Newer appimagetool fails on directories with mode 0700 inside the AppDir.
+chmod -R a+rX "$WORKDIR/squashfs-root"
+
 rm -f "$APPIMAGE"
 "$WORKDIR/appimagetool" --appimage-extract-and-run "$WORKDIR/squashfs-root" "$APPIMAGE"
 
